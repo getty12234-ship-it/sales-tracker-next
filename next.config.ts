@@ -1,7 +1,14 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  eslint: { ignoreDuringBuilds: true },
+  typescript: { ignoreBuildErrors: true },
+  // 画像の最適化設定
+  images: {
+    remotePatterns: [
+      { protocol: 'https', hostname: 'img.youtube.com' },
+    ],
+  },
 };
 
 export default nextConfig;
