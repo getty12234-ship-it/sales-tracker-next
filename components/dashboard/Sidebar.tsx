@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
   TrendingUp,
+  Map,
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -22,6 +23,7 @@ const NAV_ITEMS = [
   { href: '/dashboard/review',    label: '施策シート', icon: ClipboardList },
   { href: '/dashboard/nippo',     label: '日報',       icon: FileText },
   { href: '/dashboard/instagram', label: 'インスタ',   icon: Camera },
+  { href: '/dashboard/goals',     label: 'ゴール',     icon: Map },
   { href: '/dashboard/settings',  label: '設定',       icon: Settings },
 ]
 

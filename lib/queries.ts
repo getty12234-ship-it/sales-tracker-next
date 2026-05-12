@@ -192,6 +192,40 @@ export async function upsertSettings(memberId: string, goals: Record<string, num
   return data
 }
 
+// ==================== Member Goals ====================
+export interface MemberGoalData {
+  longterm_deadline: string
+  longterm_content: string
+  midterm_deadline: string
+  midterm_content: string
+  shortterm_deadline: string
+  shortterm_content: string
+  shortshortterm_deadline: string
+  shortshortterm_content: string
+  nextmonth_content: string
+  thismonth_content: string
+}
+
+export async function getMemberGoals(memberId: string) {
+  const { data, error } = await supabase
+    .from('st_member_goals')
+    .select('*')
+    .eq('member_id', memberId)
+    .maybeSingle()
+  if (error) throw error
+  return data
+}
+
+export async function upsertMemberGoals(memberId: string, goals: Partial<MemberGoalData>) {
+  const { data, error } = await supabase
+    .from('st_member_goals')
+    .upsert({ member_id: memberId, ...goals }, { onConflict: 'member_id' })
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
 // ==================== Appointments (既存Supabase) ====================
 export async function getActiveCases() {
   const { data, error } = await supabase
