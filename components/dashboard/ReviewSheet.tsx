@@ -3,8 +3,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAppState } from '@/lib/store'
 import { getDailyMetrics, getWeeklyReview, upsertWeeklyReview, getSettings } from '@/lib/queries'
-import { getWeekDays, pct, getYearMonth, usableDays, dailyBudgetRate } from '@/lib/date-utils'
-import { METRIC_FIELDS, METRIC_CATEGORIES, DEFAULT_GOALS } from '@/lib/constants'
+import { getWeekDays, pct, getYearMonth, usableDays, dailyBudgetRate, getMonthDays, cumulativeBudgetTarget, requiredDailyFromNow } from '@/lib/date-utils'
+import { METRIC_FIELDS, METRIC_CATEGORIES, DEFAULT_GOALS, KPI_SUMMARY } from '@/lib/constants'
 import { extractBudgets } from '@/lib/supabase'
 import { syncEvents } from './Header'
 import { useEffect, useState, useRef } from 'react'
@@ -34,6 +34,14 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
   const { data: metrics = [] } = useQuery({
     queryKey: ['daily_metrics', currentMember?.id, weekStart],
     queryFn: () => getDailyMetrics(currentMember!.id, weekDays[0], weekDays[6]),
+    enabled: !!currentMember,
+  })
+
+  // 月次データ（KPIサマリー表示用）
+  const monthDays = getMonthDays(ym)
+  const { data: monthMetrics = [] } = useQuery({
+    queryKey: ['daily_metrics_month', currentMember?.id, ym],
+    queryFn: () => getDailyMetrics(currentMember!.id, monthDays[0], monthDays[monthDays.length - 1]),
     enabled: !!currentMember,
   })
 
@@ -102,6 +110,7 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
 
   // 予算情報
   const rawGoals = (settings?.goals as Record<string, number>) || {}
+  const goalVals: Record<string, number> = { ...DEFAULT_GOALS, ...rawGoals }
   const budgets = extractBudgets(rawGoals)
   const hasBudgets = Object.values(budgets).some(v => v > 0)
   const days = usableDays(ym)
@@ -112,31 +121,119 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
     totals[key] = metrics.reduce((sum, m) => sum + ((m[key as keyof DailyMetrics] as number) || 0), 0)
   })
 
+  // 月次合計
+  const monthTotals: Record<string, number> = {}
+  METRIC_FIELDS.forEach(({ key }) => {
+    monthTotals[key] = monthMetrics.reduce((sum, m) => sum + ((m[key as keyof DailyMetrics] as number) || 0), 0)
+  })
+
   if (!currentMember) {
     return <div className="text-slate-500 text-sm p-8 text-center">メンバーを選択してください</div>
   }
 
   return (
     <div className={`grid grid-cols-1 xl:grid-cols-3 gap-4 ${readOnly ? 'opacity-80' : ''}`}>
-      {/* 左: 週次数字サマリー */}
+      {/* 左: KPIサマリー + 週次実績 */}
       <div className="xl:col-span-1 space-y-3">
+
+        {/* ① 月次KPIサマリー（予算・目標・達成率） */}
         <Card className="bg-slate-900 border-slate-800">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-slate-300">
-              週次実績
-              {readOnly && <span className="ml-2 text-xs text-slate-500 font-normal">（読み取り専用）</span>}
+            <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
+              📊 月次KPI実績
+              <span className="text-xs font-normal text-slate-500">{ym.replace('-','年')}月</span>
+              {readOnly && <span className="text-xs font-normal text-slate-600">（読み取り専用）</span>}
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-1">
-            {METRIC_FIELDS.filter(f => ['seiyaku','mendan_exec','doin_exec','apo_exec','offer','apo_get','muchaku','ng'].includes(f.key)).map(({ key, label, color }) => (
-              <div key={key} className="flex justify-between items-center py-1 border-b border-slate-800">
-                <span className="text-xs text-slate-400" style={color ? { color } : {}}>{label}</span>
-                <span className="text-sm font-bold text-slate-200">{totals[key] || 0}</span>
-              </div>
-            ))}
-            {/* 確認数字（変換率） */}
-            <div className="pt-2 space-y-1">
-              <p className="text-xs text-slate-600 mb-1">確認数字</p>
+          <CardContent className="p-3 pt-0">
+            <div className="grid grid-cols-3 gap-1.5">
+              {KPI_SUMMARY.map(({ key, label, color, important }) => {
+                const val = monthTotals[key] || 0
+                const budget = budgets[key] || 0
+                const goal = goalVals[key] || 0
+                const rate = pct(val, goal)
+                const budgetRate = budget > 0 ? pct(val, budget) : 0
+                const progressColor = rate >= 100 ? '#22c55e' : rate >= 70 ? '#eab308' : '#ef4444'
+                const cumTarget = budget > 0 ? cumulativeBudgetTarget(budget, ym) : 0
+                const reqDaily = budget > 0 ? requiredDailyFromNow(budget, val, ym) : 0
+                const isOnTrack = budget > 0 ? val >= cumTarget : true
+                return (
+                  <div
+                    key={key}
+                    className={`rounded-lg p-2 ${important ? 'bg-slate-800 ring-1 ring-indigo-500/20' : 'bg-slate-800/50'}`}
+                  >
+                    <div className="text-[10px] text-slate-500 truncate mb-0.5">{label}</div>
+                    <div className="text-lg font-bold leading-tight" style={{ color }}>{val}</div>
+                    {budget > 0 ? (
+                      <div className="text-[10px] leading-tight">
+                        <span className="text-amber-400">予{budget}</span>
+                        <span className="text-slate-600 ml-0.5">目{goal}</span>
+                      </div>
+                    ) : (
+                      <div className="text-[10px] text-slate-600">目標 {goal}</div>
+                    )}
+                    {/* プログレスバー */}
+                    <div className="w-full h-1 bg-slate-700 rounded-full mt-1.5">
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{ width: `${Math.min(100, rate)}%`, background: progressColor }}
+                      />
+                    </div>
+                    <div className="flex justify-between mt-0.5">
+                      <span className="text-[10px]" style={{ color: progressColor }}>{rate}%</span>
+                      {budget > 0 && reqDaily > 0 && val < budget ? (
+                        <span className={`text-[9px] ${isOnTrack ? 'text-slate-500' : 'text-red-400'}`}>
+                          {reqDaily}/日
+                        </span>
+                      ) : budget > 0 && val >= budget ? (
+                        <span className="text-[9px] text-green-400">✓</span>
+                      ) : null}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* ② 週次実績（今週の収支） */}
+        <Card className="bg-slate-900 border-slate-800">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-slate-300">今週の収支実績</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1 p-3 pt-0">
+            {[
+              { key: 'apo_get',     label: 'アポ獲得',  color: '#3b82f6' },
+              { key: 'apo_exec',    label: 'アポ実施',  color: '#06b6d4' },
+              { key: 'offer',       label: 'オファー',  color: '#f59e0b' },
+              { key: 'doin_exec',   label: '動員実施',  color: '#8b5cf6' },
+              { key: 'mendan_exec', label: '面談実施',  color: '#6366f1' },
+              { key: 'seiyaku',     label: '成約',      color: '#22c55e' },
+              { key: 'ng',          label: 'NG',        color: '#fb923c' },
+              { key: 'muchaku',     label: '無着地',    color: '#f87171' },
+            ].map(({ key, label, color }) => {
+              const weekVal = totals[key] || 0
+              const monthVal = monthTotals[key] || 0
+              const goal = goalVals[key] || 0
+              const weekShare = goal > 0 ? Math.round((weekVal / goal) * 100) : 0
+              return (
+                <div key={key} className="flex items-center gap-2 py-0.5 border-b border-slate-800/60">
+                  <span className="text-xs w-16 shrink-0" style={{ color }}>{label}</span>
+                  <span className="text-sm font-bold text-slate-100 w-6 text-right shrink-0">{weekVal}</span>
+                  <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full"
+                      style={{ width: `${Math.min(100, weekShare)}%`, background: color }}
+                    />
+                  </div>
+                  <span className="text-[10px] text-slate-500 w-12 text-right shrink-0">
+                    月計 {monthVal}
+                  </span>
+                </div>
+              )
+            })}
+            {/* 変換率 */}
+            <div className="pt-2 grid grid-cols-2 gap-x-3 gap-y-0.5">
               {[
                 { label: '無着地率',  value: pct(totals.muchaku, totals.apo_exec),  color: '#f87171' },
                 { label: 'NG率',      value: pct(totals.ng,      totals.apo_exec),  color: '#fb923c' },
@@ -144,46 +241,13 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
                 { label: '成約率',    value: pct(totals.seiyaku, totals.doin_exec), color: '#22c55e' },
               ].map(({ label, value, color }) => (
                 <div key={label} className="flex justify-between items-center py-0.5">
-                  <span className="text-xs text-slate-500">{label}</span>
-                  <span className="text-sm font-bold" style={{ color }}>{value}%</span>
+                  <span className="text-[10px] text-slate-500">{label}</span>
+                  <span className="text-xs font-bold" style={{ color }}>{value}%</span>
                 </div>
               ))}
             </div>
           </CardContent>
         </Card>
-
-        {/* 月次予算ペース */}
-        {hasBudgets && (
-          <Card className="bg-slate-900 border-slate-800 border-amber-900/30">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs text-amber-400">
-                月次予算ペース（{ym.replace('-','年')}月）
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-1">
-              <div className="text-[10px] text-slate-500 mb-1.5">
-                使える日数: {days}日 / 日当たり
-              </div>
-              {['seiyaku','mendan_exec','doin_exec','apo_exec','apo_get'].map(key => {
-                const b = budgets[key]
-                if (!b) return null
-                const daily = dailyBudgetRate(b, ym)
-                const kpi = ['成約','面談実施','動員実施','アポ実施','アポ獲得']
-                const idx = ['seiyaku','mendan_exec','doin_exec','apo_exec','apo_get'].indexOf(key)
-                const colors = ['#22c55e','#6366f1','#8b5cf6','#06b6d4','#3b82f6']
-                return (
-                  <div key={key} className="flex justify-between items-center py-0.5 border-b border-slate-800/40">
-                    <span className="text-xs" style={{ color: colors[idx] }}>{kpi[idx]}</span>
-                    <div className="text-right">
-                      <span className="text-amber-400 font-semibold text-sm">{b}</span>
-                      <span className="text-slate-500 text-xs">（{daily.toFixed(1)}/日）</span>
-                    </div>
-                  </div>
-                )
-              })}
-            </CardContent>
-          </Card>
-        )}
 
         {/* 曜日別グラフ */}
         <Card className="bg-slate-900 border-slate-800">
