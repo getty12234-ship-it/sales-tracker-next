@@ -11,11 +11,16 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Plus, Trash2, Settings, Users, Target } from 'lucide-react'
+import { Plus, Trash2, Settings, Users, Target, Calculator } from 'lucide-react'
 
 export function SettingsView() {
-  const { currentMember, setCurrentMember, members, setMembers } = useAppState()
+  const { currentMember, setCurrentMember, members: allMembers, setMembers, currentTeam } = useAppState()
+  const members = allMembers.filter(m => (m.team || 'top') === currentTeam)
   const queryClient = useQueryClient()
+
+  // 予算自動計算
+  const [budget, setBudget] = useState('')
+  const [unitPrice, setUnitPrice] = useState('')
 
   // 目標設定
   const { data: settings } = useQuery({
@@ -42,7 +47,7 @@ export function SettingsView() {
   const [memberDialogOpen, setMemberDialogOpen] = useState(false)
 
   const { mutate: addMember } = useMutation({
-    mutationFn: () => createMember(newMemberName, selectedColor),
+    mutationFn: () => createMember(newMemberName, selectedColor, currentTeam),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['members'] })
       setMemberDialogOpen(false)
@@ -146,6 +151,68 @@ export function SettingsView() {
           )}
         </CardContent>
       </Card>
+
+      {/* 予算→目標自動計算 */}
+      {currentMember && (
+        <Card className="bg-slate-900 border-slate-800">
+          <CardHeader>
+            <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
+              <Calculator className="w-4 h-4 text-amber-400" />
+              予算から目標を自動計算
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-slate-400 w-20">月間売上目標</label>
+                <Input
+                  type="number" min={0}
+                  className="bg-slate-950 border-slate-700 text-sm h-8 w-28 text-center"
+                  value={budget}
+                  onChange={e => setBudget(e.target.value)}
+                  placeholder="例: 100"
+                />
+                <span className="text-xs text-slate-500">万円</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-slate-400 w-12">1件単価</label>
+                <Input
+                  type="number" min={0}
+                  className="bg-slate-950 border-slate-700 text-sm h-8 w-28 text-center"
+                  value={unitPrice}
+                  onChange={e => setUnitPrice(e.target.value)}
+                  placeholder="例: 5"
+                />
+                <span className="text-xs text-slate-500">万円</span>
+              </div>
+              <Button
+                size="sm" className="h-8 bg-amber-600 hover:bg-amber-700 text-white text-xs"
+                disabled={!budget || !unitPrice}
+                onClick={() => {
+                  const b = parseFloat(budget), u = parseFloat(unitPrice)
+                  if (!b || !u) return
+                  const seiyaku = Math.ceil(b / u)
+                  const auto: Record<string, number> = {
+                    seiyaku,
+                    mendan_exec: Math.ceil(seiyaku * 3.5),
+                    doin_exec:   Math.ceil(seiyaku * 4),
+                    apo_exec:    Math.ceil(seiyaku * 8),
+                    offer:       Math.ceil(seiyaku * 5),
+                    apo_get:     Math.ceil(seiyaku * 12),
+                    post:        Math.ceil(seiyaku * 15),
+                    line_exchange: Math.ceil(seiyaku * 20),
+                    doin_get:    Math.ceil(seiyaku * 6),
+                  }
+                  saveGoals({ goals: { ...goals, ...auto } })
+                }}
+              >
+                自動計算して適用
+              </Button>
+            </div>
+            <p className="text-xs text-slate-600">成約数 = 売上目標 ÷ 単価 をもとに各KPIを逆算します</p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* 目標設定 */}
       {currentMember && (

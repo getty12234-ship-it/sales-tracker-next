@@ -33,17 +33,20 @@ const DialogContext = React.createContext<{
 
 function DialogTrigger({ children, render }: { children?: React.ReactNode; render?: React.ReactElement }) {
   const { onOpenChange } = React.useContext(DialogContext)
+  const renderProps = render?.props as Record<string, unknown> | undefined
   const trigger = render
     ? React.cloneElement(render, {
         onClick: (e: React.MouseEvent) => {
-          render.props.onClick?.(e)
+          if (typeof renderProps?.onClick === 'function') renderProps.onClick(e)
           onOpenChange?.(true)
         },
-        children: children ?? render.props.children,
-      })
-    : React.cloneElement(children as React.ReactElement, {
+        children: children ?? renderProps?.children,
+      } as Record<string, unknown>)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    : React.cloneElement(children as React.ReactElement<any>, {
         onClick: (e: React.MouseEvent) => {
-          (children as React.ReactElement).props.onClick?.(e)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ;(children as React.ReactElement<any>).props.onClick?.(e)
           onOpenChange?.(true)
         },
       })

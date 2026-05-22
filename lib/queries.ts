@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import type { DailyMetrics, WeeklyReview, DailyReport, MonthlyVideo, InstagramMetrics } from './supabase'
+import type { DailyMetrics, WeeklyReview, DailyReport, MonthlyVideo, InstagramMetrics, StCase } from './supabase'
 
 // ==================== Members ====================
 export async function getMembers() {
@@ -11,10 +11,10 @@ export async function getMembers() {
   return data || []
 }
 
-export async function createMember(name: string, color?: string) {
+export async function createMember(name: string, color?: string, team?: 'top' | 'second') {
   const { data, error } = await supabase
     .from('st_members')
-    .insert({ name, color: color || '#6366f1' })
+    .insert({ name, color: color || '#6366f1', team: team || 'top' })
     .select()
     .single()
   if (error) throw error
@@ -59,6 +59,18 @@ export async function getWeeklyReview(memberId: string, weekStartDate: string) {
     .maybeSingle()
   if (error) throw error
   return data
+}
+
+export async function getWeeklyReviews(memberId: string, startDate: string, endDate: string) {
+  const { data, error } = await supabase
+    .from('st_weekly_reviews')
+    .select('*')
+    .eq('member_id', memberId)
+    .gte('week_start_date', startDate)
+    .lte('week_start_date', endDate)
+    .order('week_start_date')
+  if (error) throw error
+  return data || []
 }
 
 export async function upsertWeeklyReview(review: Partial<WeeklyReview> & { member_id: string; week_start_date: string }) {
@@ -161,6 +173,20 @@ export async function getInstagramMetrics(accountId: string, startDate: string, 
   return data || []
 }
 
+export async function getInstagramMonthlyMetrics(accountId: string, yearMonth: string) {
+  const startDate = `${yearMonth}-01`
+  const endDate = `${yearMonth}-31`
+  const { data, error } = await supabase
+    .from('st_instagram_metrics')
+    .select('*')
+    .eq('account_id', accountId)
+    .gte('date', startDate)
+    .lte('date', endDate)
+    .order('date')
+  if (error) throw error
+  return data || []
+}
+
 export async function upsertInstagramMetrics(metrics: Partial<InstagramMetrics> & { account_id: string; date: string }) {
   const { data, error } = await supabase
     .from('st_instagram_metrics')
@@ -226,6 +252,55 @@ export async function upsertMemberGoals(memberId: string, goals: Partial<MemberG
   return data
 }
 
+// ==================== Team (全メンバー一括) ====================
+export async function getAllMembersMetrics(memberIds: string[], startDate: string, endDate: string) {
+  if (!memberIds.length) return []
+  const { data, error } = await supabase
+    .from('st_daily_metrics')
+    .select('*')
+    .in('member_id', memberIds)
+    .gte('date', startDate)
+    .lte('date', endDate)
+  if (error) throw error
+  return data || []
+}
+
+export async function getAllMembersSettings(memberIds: string[]) {
+  if (!memberIds.length) return []
+  const { data, error } = await supabase
+    .from('st_settings')
+    .select('*')
+    .in('member_id', memberIds)
+  if (error) throw error
+  return data || []
+}
+
+// ==================== St Cases ====================
+export async function getStCases(memberId: string) {
+  const { data, error } = await supabase
+    .from('st_cases')
+    .select('*')
+    .eq('member_id', memberId)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data || []
+}
+
+export async function upsertStCase(c: Partial<StCase> & { member_id: string }) {
+  const { data, error } = await supabase
+    .from('st_cases')
+    .upsert(c)
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function deleteStCase(id: string) {
+  const { error } = await supabase.from('st_cases').delete().eq('id', id)
+  if (error) throw error
+}
+
 // ==================== Appointments (既存Supabase) ====================
 export async function getActiveCases() {
   const { data, error } = await supabase
@@ -234,7 +309,7 @@ export async function getActiveCases() {
       customer:customers!inner(name,cloudworks_url),
       user:profiles!appointments_user_id_fkey(id,name),
       closer:profiles!appointments_closer_id_fkey(id,name)`)
-    .in('status', ['動員待ち', '動員済み', '面談待ち'])
+    .in('status', ['アポ獲得', '直クロ動員', '直クロフォロー', '再クロフォロー', '相談会動員', '再クロセットアップ', '動員後無着地', 'ライン交換'])
     .eq('is_deleted', false)
     .order('created_at', { ascending: false })
   if (error) throw error

@@ -12,8 +12,9 @@ import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import type { DailyMetrics, WeeklyReview } from '@/lib/supabase'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 
 interface ReviewSheetProps {
   weekStart?: string   // 省略時はcontextのcurrentWeekStartを使用
@@ -57,6 +58,7 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
     cause_actions: [] as { action: string; deadline: string }[],
     muchaku_reasons: [] as { reason: string; count: number }[],
     ng_reasons: [] as { reason: string; count: number }[],
+    doin_muchaku_list: [] as { date: string; customer: string; closer: string; reason: string }[],
   })
 
   useEffect(() => {
@@ -68,6 +70,7 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
         cause_actions: (review.cause_actions as any) || [],
         muchaku_reasons: (review.muchaku_reasons as any) || [],
         ng_reasons: (review.ng_reasons as any) || [],
+        doin_muchaku_list: (review.doin_muchaku_list as any) || [],
       })
     }
   }, [review])
@@ -116,6 +119,54 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
                 <span className="text-sm font-bold text-slate-200">{totals[key] || 0}</span>
               </div>
             ))}
+            {/* 確認数字（変換率） */}
+            <div className="pt-2 space-y-1">
+              <p className="text-xs text-slate-600 mb-1">確認数字</p>
+              {[
+                { label: '無着地率',  value: pct(totals.muchaku, totals.apo_exec),  color: '#f87171' },
+                { label: 'NG率',      value: pct(totals.ng,      totals.apo_exec),  color: '#fb923c' },
+                { label: 'オファー率',value: pct(totals.offer,   totals.apo_exec),  color: '#f59e0b' },
+                { label: '成約率',    value: pct(totals.seiyaku, totals.doin_exec), color: '#22c55e' },
+              ].map(({ label, value, color }) => (
+                <div key={label} className="flex justify-between items-center py-0.5">
+                  <span className="text-xs text-slate-500">{label}</span>
+                  <span className="text-sm font-bold" style={{ color }}>{value}%</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* 曜日別グラフ */}
+        <Card className="bg-slate-900 border-slate-800">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-slate-300">曜日別 アポ獲得・動員実施・成約</CardTitle>
+          </CardHeader>
+          <CardContent className="p-2">
+            {(() => {
+              const dayLabels = ['月', '火', '水', '木', '金', '土', '日']
+              const chartData = weekDays.map((date, i) => {
+                const m = metrics.find(d => d.date === date)
+                return {
+                  day: dayLabels[i],
+                  アポ獲得: m?.apo_get || 0,
+                  動員実施: m?.doin_exec || 0,
+                  成約: m?.seiyaku || 0,
+                }
+              })
+              return (
+                <ResponsiveContainer width="100%" height={140}>
+                  <BarChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                    <XAxis dataKey="day" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                    <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 6, fontSize: 11 }} />
+                    <Bar dataKey="アポ獲得" fill="#6366f1" radius={[2,2,0,0]} maxBarSize={14} />
+                    <Bar dataKey="動員実施" fill="#8b5cf6" radius={[2,2,0,0]} maxBarSize={14} />
+                    <Bar dataKey="成約" fill="#22c55e" radius={[2,2,0,0]} maxBarSize={14} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )
+            })()}
           </CardContent>
         </Card>
       </div>
@@ -211,6 +262,22 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
           onChange={next => !readOnly && debouncedSave({ muchaku_reasons: next })}
         />
 
+        {/* 最多無着地理由（自動計算） */}
+        {form.muchaku_reasons.length > 0 && (() => {
+          const top = [...form.muchaku_reasons].filter(r => r.count > 0).sort((a, b) => b.count - a.count)[0]
+          if (!top) return null
+          return (
+            <Card className="bg-slate-900 border-amber-800/40 border">
+              <CardContent className="pt-3 pb-3">
+                <div className="text-xs text-amber-400 font-semibold">
+                  ⚠️ 最多無着地理由: <span className="text-white">{top.reason}（{top.count}件）</span>
+                </div>
+                <div className="text-xs text-slate-500 mt-1">↑ この理由への対策を「最重要アクション」に記入してください</div>
+              </CardContent>
+            </Card>
+          )
+        })()}
+
         {/* NG理由 */}
         <ReasonList
           title={`NG理由 (計: ${totals.ng || 0}件)`}
@@ -218,6 +285,60 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
           items={form.ng_reasons}
           onChange={next => !readOnly && debouncedSave({ ng_reasons: next })}
         />
+
+        {/* 動員後無着地リスト */}
+        <Card className="bg-slate-900 border-slate-800">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm text-slate-300">
+                動員後無着地リスト ({form.doin_muchaku_list.length}件)
+              </CardTitle>
+              {!readOnly && (
+                <Button variant="ghost" size="sm" className="h-7 text-xs text-red-400 hover:text-red-300"
+                  onClick={() => !readOnly && debouncedSave({
+                    doin_muchaku_list: [...form.doin_muchaku_list, { date: '', customer: '', closer: '', reason: '' }]
+                  })}>
+                  <Plus className="w-3.5 h-3.5 mr-1" />追加
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {form.doin_muchaku_list.length === 0 && (
+              <p className="text-xs text-slate-600">{readOnly ? '（記録なし）' : '追加ボタンで入力'}</p>
+            )}
+            {form.doin_muchaku_list.map((item, i) => (
+              <div key={i} className="flex gap-2 items-center flex-wrap">
+                <Input
+                  className="bg-slate-950 border-slate-700 text-xs h-7 w-24"
+                  value={item.date} readOnly={readOnly} placeholder="日付"
+                  onChange={e => { if (readOnly) return; const next = [...form.doin_muchaku_list]; next[i] = { ...next[i], date: e.target.value }; debouncedSave({ doin_muchaku_list: next }) }}
+                />
+                <Input
+                  className="bg-slate-950 border-slate-700 text-xs h-7 flex-1 min-w-[80px]"
+                  value={item.customer} readOnly={readOnly} placeholder="顧客名"
+                  onChange={e => { if (readOnly) return; const next = [...form.doin_muchaku_list]; next[i] = { ...next[i], customer: e.target.value }; debouncedSave({ doin_muchaku_list: next }) }}
+                />
+                <Input
+                  className="bg-slate-950 border-slate-700 text-xs h-7 w-20"
+                  value={item.closer} readOnly={readOnly} placeholder="クローザー"
+                  onChange={e => { if (readOnly) return; const next = [...form.doin_muchaku_list]; next[i] = { ...next[i], closer: e.target.value }; debouncedSave({ doin_muchaku_list: next }) }}
+                />
+                <Input
+                  className="bg-slate-950 border-slate-700 text-xs h-7 flex-1 min-w-[80px]"
+                  value={item.reason} readOnly={readOnly} placeholder="無着地理由"
+                  onChange={e => { if (readOnly) return; const next = [...form.doin_muchaku_list]; next[i] = { ...next[i], reason: e.target.value }; debouncedSave({ doin_muchaku_list: next }) }}
+                />
+                {!readOnly && (
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-500 hover:text-red-400 shrink-0"
+                    onClick={() => debouncedSave({ doin_muchaku_list: form.doin_muchaku_list.filter((_, j) => j !== i) })}>
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                )}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
       </div>
     </div>
   )

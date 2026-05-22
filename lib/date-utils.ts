@@ -102,17 +102,13 @@ export function pct(a: number, b: number): number {
   return Math.round((a / b) * 100)
 }
 
-// 残り営業日計算（土日除く）
+// 残り営業日計算（末日-3日 - 今日の日付）
 export function remainingWorkdays(yearMonth: string): number {
   const [year, month] = yearMonth.split('-').map(Number)
   const today = new Date()
-  const lastDay = new Date(year, month, 0)
-  let count = 0
-  for (let d = new Date(today); d <= lastDay; d.setDate(d.getDate() + 1)) {
-    const dow = d.getDay()
-    if (dow !== 0 && dow !== 6) count++
-  }
-  return count
+  const lastDay = new Date(year, month, 0).getDate()
+  const todayDate = today.getDate()
+  return Math.max(0, lastDay - 3 - todayDate)
 }
 
 // 経過営業日計算

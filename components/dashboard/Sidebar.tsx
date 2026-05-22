@@ -14,17 +14,19 @@ import {
   ChevronRight,
   TrendingUp,
   Map,
+  Users,
 } from 'lucide-react'
 import { useState } from 'react'
 
 const NAV_ITEMS = [
-  { href: '/dashboard',           label: 'サマリー',   icon: TrendingUp,    exact: true },
-  { href: '/dashboard/daily',     label: '日別数字',   icon: Calendar },
-  { href: '/dashboard/review',    label: '施策シート', icon: ClipboardList },
-  { href: '/dashboard/nippo',     label: '日報',       icon: FileText },
-  { href: '/dashboard/instagram', label: 'インスタ',   icon: Camera },
-  { href: '/dashboard/goals',     label: 'ゴール',     icon: Map },
-  { href: '/dashboard/settings',  label: '設定',       icon: Settings },
+  { href: '/dashboard',           label: 'サマリー',       icon: TrendingUp,    exact: true },
+  { href: '/dashboard/team',      label: 'チームサマリー', icon: Users },
+  { href: '/dashboard/daily',     label: '日別数字',       icon: Calendar },
+  { href: '/dashboard/review',    label: '施策シート',     icon: ClipboardList },
+  { href: '/dashboard/nippo',     label: '日報',           icon: FileText },
+  { href: '/dashboard/instagram', label: 'インスタ',       icon: Camera },
+  { href: '/dashboard/goals',     label: 'ゴール',         icon: Map },
+  { href: '/dashboard/settings',  label: '設定',           icon: Settings },
 ]
 
 export function Sidebar() {

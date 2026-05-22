@@ -9,6 +9,8 @@ import { METRIC_FIELDS, METRIC_CATEGORIES } from '@/lib/constants'
 import { syncEvents } from './Header'
 import { useRef, useCallback } from 'react'
 import type { DailyMetrics } from '@/lib/supabase'
+import { Download, Upload } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 
 // debounce用タイマー管理
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -103,8 +105,68 @@ export function DailyMetricsTable() {
     totals[key] = weekDays.reduce((sum, date) => sum + (metricsMap[date]?.[key as keyof DailyMetrics] as number || 0), 0)
   })
 
+  // CSV エクスポート
+  const exportCSV = () => {
+    const headers = ['日付', ...METRIC_FIELDS.map(f => f.label)]
+    const rows = weekDays.map(date => [
+      date,
+      ...METRIC_FIELDS.map(f => String((metricsMap[date]?.[f.key as keyof DailyMetrics] as number) || 0))
+    ])
+    const csv = [headers, ...rows].map(r => r.join(',')).join('\n')
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = `daily_${weekDays[0]}.csv`; a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  // CSV インポート
+  const importCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !currentMember) return
+    const text = await file.text()
+    const lines = text.replace(/^﻿/, '').split('\n').filter(l => l.trim())
+    if (lines.length < 2) return
+    const headerLine = lines[0].split(',')
+    const fieldIndexMap: Record<string, number> = {}
+    METRIC_FIELDS.forEach(({ key, label }) => {
+      const idx = headerLine.indexOf(label)
+      if (idx >= 0) fieldIndexMap[key] = idx
+    })
+    const saves: Promise<any>[] = []
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split(',')
+      const date = cols[0]?.trim()
+      if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue
+      const row: any = { member_id: currentMember.id, date }
+      METRIC_FIELDS.forEach(({ key }) => {
+        const idx = fieldIndexMap[key]
+        if (idx !== undefined) row[key] = parseInt(cols[idx]) || 0
+      })
+      saves.push(save(row))
+    }
+    await Promise.all(saves)
+    queryClient.invalidateQueries({ queryKey: ['daily_metrics', currentMember.id] })
+    e.target.value = ''
+  }
+
   return (
-    <div className="overflow-x-auto rounded-lg border border-slate-800">
+    <div className="space-y-2">
+      {/* ツールバー */}
+      <div className="flex justify-end gap-2">
+        <Button
+          variant="ghost" size="sm"
+          className="h-7 text-xs text-slate-400 hover:text-slate-200 border border-slate-700"
+          onClick={exportCSV}
+        >
+          <Download className="w-3.5 h-3.5 mr-1" />CSV出力
+        </Button>
+        <label className="cursor-pointer inline-flex items-center h-7 px-3 text-xs text-slate-400 hover:text-slate-200 border border-slate-700 rounded-md bg-transparent hover:bg-slate-800/40 transition-colors gap-1">
+          <Upload className="w-3.5 h-3.5" />CSV取込
+          <input type="file" accept=".csv" className="hidden" onChange={importCSV} />
+        </label>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-slate-800">
       <table className="w-full text-sm border-collapse" style={{ minWidth: '720px' }}>
         <thead>
           <tr>
@@ -157,6 +219,7 @@ export function DailyMetricsTable() {
           })}
         </tbody>
       </table>
+    </div>
     </div>
   )
 }
