@@ -4,7 +4,7 @@ import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAppState } from '@/lib/store'
 import { getDailyMetrics, upsertDailyMetrics, getWeeklyReview, upsertWeeklyReview } from '@/lib/queries'
-import { getWeekDays, formatDateJa } from '@/lib/date-utils'
+import { getWeekDays, formatDateJa, getYearMonth } from '@/lib/date-utils'
 import { METRIC_FIELDS, METRIC_CATEGORIES } from '@/lib/constants'
 import { syncEvents } from './Header'
 import { useRef, useCallback } from 'react'
@@ -50,6 +50,7 @@ export function DailyMetricsTable() {
   const { mutateAsync: save } = useMutation({
     mutationFn: upsertDailyMetrics,
     onSuccess: (data) => {
+      // 週単位キャッシュを楽観的更新
       queryClient.setQueryData(
         ['daily_metrics', currentMember?.id, currentWeekStart],
         (old: DailyMetrics[] = []) => {
@@ -62,6 +63,11 @@ export function DailyMetricsTable() {
           return [...old, data]
         }
       )
+      // 月単位キャッシュを無効化（SummaryDashboard・ReviewSheet月次KPI連携）
+      const savedYm = getYearMonth(data.date)
+      queryClient.invalidateQueries({ queryKey: ['daily_metrics', currentMember?.id, savedYm] })
+      queryClient.invalidateQueries({ queryKey: ['daily_metrics_month', currentMember?.id, savedYm] })
+
       syncEvents.emit('saved')
       setTimeout(() => syncEvents.emit('idle'), 2000)
     },
@@ -174,19 +180,23 @@ export function DailyMetricsTable() {
     e.target.value = ''
   }
 
-  // 内訳モーダルの保存
+  // 内訳モーダルの保存（queryClientから最新キャッシュを取得して上書きを防止）
   const handleBreakdownSave = (type: 'ng' | 'muchaku', reasons: { reason: string; count: number }[]) => {
     if (!currentMember) return
+    // React Queryキャッシュから最新状態を取得（ReviewSheetでの編集含む）
+    const latestReview = queryClient.getQueryData<any>(
+      ['weekly_review', currentMember.id, currentWeekStart]
+    )
     const base = {
       member_id: currentMember.id,
       week_start_date: currentWeekStart,
-      main_issue: (weeklyReview?.main_issue as string) || '',
-      main_cause: (weeklyReview?.main_cause as string) || '',
-      top_action: (weeklyReview?.top_action as string) || '',
-      cause_actions: (weeklyReview?.cause_actions as any) || [],
-      muchaku_reasons: (weeklyReview?.muchaku_reasons as any) || [],
-      ng_reasons: (weeklyReview?.ng_reasons as any) || [],
-      doin_muchaku_list: (weeklyReview?.doin_muchaku_list as any) || [],
+      main_issue: latestReview?.main_issue || '',
+      main_cause: latestReview?.main_cause || '',
+      top_action: latestReview?.top_action || '',
+      cause_actions: latestReview?.cause_actions || [],
+      muchaku_reasons: latestReview?.muchaku_reasons || [],
+      ng_reasons: latestReview?.ng_reasons || [],
+      doin_muchaku_list: latestReview?.doin_muchaku_list || [],
     }
     if (type === 'ng') {
       saveReview({ ...base, ng_reasons: reasons })
