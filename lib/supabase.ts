@@ -1,15 +1,18 @@
-import { createClient } from '@supabase/supabase-js'
+import { createBrowserClient } from '@supabase/ssr'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+export const supabase = createBrowserClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
 // データベースの型定義
 export type Member = {
   id: string
   name: string
   color?: string
+  team?: 'top' | 'second'
+  user_id?: string | null
+  is_admin?: boolean
   created_at: string
 }
 
@@ -54,6 +57,7 @@ export type WeeklyReview = {
   cause_actions: { action: string; deadline: string }[]
   muchaku_reasons: { reason: string; count: number }[]
   ng_reasons: { reason: string; count: number }[]
+  doin_muchaku_list: { date: string; customer: string; closer: string; reason: string }[]
   created_at?: string
   updated_at?: string
 }
@@ -96,6 +100,18 @@ export type InstagramMetrics = {
   ig_doin_exec: number
   ig_seiyaku: number
   created_at?: string
+}
+
+export type StCase = {
+  id: string
+  member_id: string
+  customer_name: string
+  next_action: string       // 次回アクション
+  cu_off_care: string       // クーオフケア
+  closer_name: string
+  next_action_date: string  // 次回アクション日 (YYYY-MM-DD)
+  notes: string
+  created_at: string
 }
 
 export type Settings = {

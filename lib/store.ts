@@ -22,9 +22,19 @@ export type AppState = {
   currentDate: string
   setCurrentDate: (d: string) => void
 
-  // メンバー一覧
+  // メンバー一覧（全員）
   members: Member[]
   setMembers: (members: Member[]) => void
+
+  // 選択中のチーム
+  currentTeam: 'top' | 'second'
+  setCurrentTeam: (t: 'top' | 'second') => void
+
+  // 認証情報
+  isAdmin: boolean
+  setIsAdmin: (v: boolean) => void
+  authMemberId: string | null        // ログイン中ユーザーの st_members.id
+  setAuthMemberId: (id: string | null) => void
 }
 
 export const AppContext = createContext<AppState>({
@@ -38,6 +48,12 @@ export const AppContext = createContext<AppState>({
   setCurrentDate: () => {},
   members: [],
   setMembers: () => {},
+  currentTeam: 'top',
+  setCurrentTeam: () => {},
+  isAdmin: false,
+  setIsAdmin: () => {},
+  authMemberId: null,
+  setAuthMemberId: () => {},
 })
 
 export const useAppState = () => useContext(AppContext)
