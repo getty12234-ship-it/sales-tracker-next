@@ -4,9 +4,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useAppState } from '@/lib/store'
 import { getDailyMetrics, getSettings, getStCases, upsertStCase, deleteStCase, getWeeklyReviews } from '@/lib/queries'
-import { getMonthDays, currentYearMonth, pct, remainingWorkdays, passedWorkdays, totalWorkdays } from '@/lib/date-utils'
+import { getMonthDays, currentYearMonth, pct, remainingWorkdays, passedWorkdays, totalWorkdays, usableDays, dailyBudgetRate, cumulativeBudgetTarget, requiredDailyFromNow } from '@/lib/date-utils'
 import { KPI_SUMMARY, DEFAULT_GOALS, METRIC_FIELDS } from '@/lib/constants'
 import type { DailyMetrics, StCase } from '@/lib/supabase'
+import { extractBudgets } from '@/lib/supabase'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { TrendingUp, Target, Calendar, Download, Plus, Trash2 } from 'lucide-react'
@@ -105,7 +106,10 @@ export function SummaryDashboard() {
     totals[key] = metrics.reduce((sum, m) => sum + ((m[key as keyof DailyMetrics] as number) || 0), 0)
   })
 
-  const goals = (settings?.goals as Record<string, number>) || DEFAULT_GOALS
+  const rawGoals = (settings?.goals as Record<string, number>) || {}
+  const goals = { ...DEFAULT_GOALS, ...rawGoals }
+  const budgets = extractBudgets(rawGoals)
+  const hasBudgets = Object.values(budgets).some(v => v > 0)
   const remaining = remainingWorkdays(ym)
   const passed = passedWorkdays(ym)
   const total = totalWorkdays(ym)
@@ -173,9 +177,13 @@ export function SummaryDashboard() {
         {KPI_SUMMARY.map(({ key, label, color, important }) => {
           const val = totals[key] || 0
           const goal = goals[key] || 0
+          const budget = budgets[key] || 0
           const rate = pct(val, goal)
           const daily = passed > 0 ? (val / passed).toFixed(1) : '0'
           const needPerDay = remaining > 0 ? Math.ceil(Math.max(0, goal - val) / remaining) : 0
+          // 予算ペース
+          const cumTarget = budget > 0 ? cumulativeBudgetTarget(budget, ym) : 0
+          const reqDaily = budget > 0 ? requiredDailyFromNow(budget, val, ym) : 0
 
           return (
             <KpiCard
@@ -183,15 +191,83 @@ export function SummaryDashboard() {
               label={label}
               value={val}
               goal={goal}
+              budget={budget}
               rate={rate}
               color={color}
               daily={daily}
               needPerDay={needPerDay}
               important={important}
+              cumulativeTarget={cumTarget}
+              requiredDailyBudget={reqDaily}
             />
           )
         })}
       </div>
+
+      {/* 予算ペース分析パネル */}
+      {hasBudgets && (
+        <Card className="bg-slate-900 border-slate-800 border-amber-900/30">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-amber-400 flex items-center gap-2">
+              📊 予算ペース分析
+              <span className="text-xs font-normal text-slate-500">
+                使える日数: {usableDays(ym)}日 / 今から残り: {Math.max(0, usableDays(ym) - new Date().getDate())}日
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-3 gap-1 text-xs text-slate-500 mb-2 px-1">
+              <span>KPI</span>
+              <span className="text-center">予算 / 当日累積目標</span>
+              <span className="text-center">今から必要な日当たり</span>
+            </div>
+            <div className="space-y-1.5">
+              {KPI_SUMMARY.filter(({ key }) => budgets[key] > 0).map(({ key, label, color }) => {
+                const val = totals[key] || 0
+                const budget = budgets[key]
+                const cumTarget = cumulativeBudgetTarget(budget, ym)
+                const reqDaily = requiredDailyFromNow(budget, val, ym)
+                const isOnTrack = val >= cumTarget
+                const isComplete = val >= budget
+
+                return (
+                  <div key={key} className="flex items-center gap-2 py-1 border-b border-slate-800/50">
+                    <span className="w-24 text-xs shrink-0" style={{ color }}>{label}</span>
+                    <div className="flex-1 flex items-center gap-1.5">
+                      {/* 現在値 / 予算 */}
+                      <span className="text-slate-200 font-semibold">{val}</span>
+                      <span className="text-slate-600">/</span>
+                      <span className="text-amber-400">{budget}</span>
+                      <span className="text-slate-600 text-[10px]">（累積目標 {cumTarget}）</span>
+                      {isComplete ? (
+                        <Badge className="text-[10px] bg-green-900/50 text-green-400 border-green-700 ml-auto">✓ 達成</Badge>
+                      ) : isOnTrack ? (
+                        <Badge className="text-[10px] bg-blue-900/50 text-blue-400 border-blue-700 ml-auto">順調</Badge>
+                      ) : (
+                        <Badge className="text-[10px] bg-red-900/50 text-red-400 border-red-700 ml-auto">
+                          -{Math.round((cumTarget - val) * 10) / 10} 遅れ
+                        </Badge>
+                      )}
+                    </div>
+                    {/* 今から必要な日当たり */}
+                    <div className="w-20 text-right shrink-0">
+                      {val >= budget ? (
+                        <span className="text-green-400 font-bold">完了</span>
+                      ) : reqDaily > 0 ? (
+                        <span className={`font-bold ${reqDaily > dailyBudgetRate(budget, ym) * 1.5 ? 'text-red-400' : reqDaily > dailyBudgetRate(budget, ym) ? 'text-amber-400' : 'text-slate-300'}`}>
+                          {reqDaily}/日
+                        </span>
+                      ) : (
+                        <span className="text-slate-500">-</span>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* 確認数字（自動計算） */}
       <Card className="bg-slate-900 border-slate-800">
@@ -406,12 +482,15 @@ export function SummaryDashboard() {
 
 // KPIカードコンポーネント
 function KpiCard({
-  label, value, goal, rate, color, daily, needPerDay, important
+  label, value, goal, budget, rate, color, daily, needPerDay, important, cumulativeTarget, requiredDailyBudget
 }: {
-  label: string, value: number, goal: number, rate: number,
-  color: string, daily: string, needPerDay: number, important: boolean
+  label: string, value: number, goal: number, budget: number, rate: number,
+  color: string, daily: string, needPerDay: number, important: boolean,
+  cumulativeTarget: number, requiredDailyBudget: number
 }) {
   const progressColor = rate >= 100 ? 'bg-green-500' : rate >= 70 ? 'bg-yellow-400' : 'bg-red-500'
+  const hasBudget = budget > 0
+  const budgetRate = budget > 0 ? Math.round((value / budget) * 100) : 0
 
   return (
     <Card className={`bg-slate-900 border-slate-800 ${important ? 'ring-1 ring-indigo-500/30' : ''}`}>
@@ -419,19 +498,54 @@ function KpiCard({
         <div className="text-xs text-slate-500 mb-1 truncate">{label}</div>
         <div className="flex items-baseline justify-between mb-2">
           <span className="text-2xl font-bold" style={{ color }}>{value}</span>
-          <span className="text-xs text-slate-500">/{goal}</span>
+          <div className="text-right">
+            {hasBudget ? (
+              <>
+                <div className="text-xs text-amber-400">予算{budget}</div>
+                <div className="text-xs text-slate-500">目標{goal}</div>
+              </>
+            ) : (
+              <span className="text-xs text-slate-500">/{goal}</span>
+            )}
+          </div>
         </div>
-        {/* プログレス */}
-        <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mb-1.5">
+        {/* プログレスバー（目標ベース） */}
+        <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mb-1">
           <div
             className={`h-full rounded-full transition-all ${progressColor}`}
             style={{ width: `${Math.min(100, rate)}%` }}
           />
         </div>
-        <div className="flex justify-between text-xs">
-          <span className="text-slate-500">{rate}%</span>
-          {needPerDay > 0 && (
-            <span className="text-amber-400">{needPerDay}/日</span>
+        {/* 予算バー */}
+        {hasBudget && (
+          <div className="w-full h-1 bg-slate-800/60 rounded-full overflow-hidden mb-1.5">
+            <div
+              className="h-full rounded-full bg-amber-500/60 transition-all"
+              style={{ width: `${Math.min(100, budgetRate)}%` }}
+            />
+          </div>
+        )}
+        <div className="space-y-0.5">
+          <div className="flex justify-between text-xs">
+            <span className="text-slate-500">{rate}%</span>
+            {hasBudget ? (
+              <span className="text-amber-500 text-[10px]">予算{budgetRate}%</span>
+            ) : needPerDay > 0 ? (
+              <span className="text-amber-400">{needPerDay}/日</span>
+            ) : null}
+          </div>
+          {/* 予算ペース表示 */}
+          {hasBudget && (
+            <div className="flex justify-between text-[10px]">
+              <span className="text-slate-600">累積目標 {cumulativeTarget}</span>
+              {requiredDailyBudget > 0 ? (
+                <span className={requiredDailyBudget > budget / 10 ? 'text-red-400 font-bold' : 'text-slate-400'}>
+                  今から{requiredDailyBudget}/日
+                </span>
+              ) : value >= budget ? (
+                <span className="text-green-400">✓完了</span>
+              ) : null}
+            </div>
           )}
         </div>
       </CardContent>

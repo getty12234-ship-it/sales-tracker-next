@@ -2,9 +2,10 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAppState } from '@/lib/store'
-import { getDailyMetrics, getWeeklyReview, upsertWeeklyReview } from '@/lib/queries'
-import { getWeekDays, pct } from '@/lib/date-utils'
+import { getDailyMetrics, getWeeklyReview, upsertWeeklyReview, getSettings } from '@/lib/queries'
+import { getWeekDays, pct, getYearMonth, usableDays, dailyBudgetRate } from '@/lib/date-utils'
 import { METRIC_FIELDS, METRIC_CATEGORIES, DEFAULT_GOALS } from '@/lib/constants'
+import { extractBudgets } from '@/lib/supabase'
 import { syncEvents } from './Header'
 import { useEffect, useState, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -28,9 +29,17 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
   const weekDays = getWeekDays(weekStart)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
+  const ym = getYearMonth(weekStart)
+
   const { data: metrics = [] } = useQuery({
     queryKey: ['daily_metrics', currentMember?.id, weekStart],
     queryFn: () => getDailyMetrics(currentMember!.id, weekDays[0], weekDays[6]),
+    enabled: !!currentMember,
+  })
+
+  const { data: settings } = useQuery({
+    queryKey: ['settings', currentMember?.id],
+    queryFn: () => getSettings(currentMember!.id),
     enabled: !!currentMember,
   })
 
@@ -91,6 +100,12 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
     }, 800)
   }
 
+  // 予算情報
+  const rawGoals = (settings?.goals as Record<string, number>) || {}
+  const budgets = extractBudgets(rawGoals)
+  const hasBudgets = Object.values(budgets).some(v => v > 0)
+  const days = usableDays(ym)
+
   // 週合計
   const totals: Record<string, number> = {}
   METRIC_FIELDS.forEach(({ key }) => {
@@ -136,6 +151,39 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
             </div>
           </CardContent>
         </Card>
+
+        {/* 月次予算ペース */}
+        {hasBudgets && (
+          <Card className="bg-slate-900 border-slate-800 border-amber-900/30">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xs text-amber-400">
+                月次予算ペース（{ym.replace('-','年')}月）
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-1">
+              <div className="text-[10px] text-slate-500 mb-1.5">
+                使える日数: {days}日 / 日当たり
+              </div>
+              {['seiyaku','mendan_exec','doin_exec','apo_exec','apo_get'].map(key => {
+                const b = budgets[key]
+                if (!b) return null
+                const daily = dailyBudgetRate(b, ym)
+                const kpi = ['成約','面談実施','動員実施','アポ実施','アポ獲得']
+                const idx = ['seiyaku','mendan_exec','doin_exec','apo_exec','apo_get'].indexOf(key)
+                const colors = ['#22c55e','#6366f1','#8b5cf6','#06b6d4','#3b82f6']
+                return (
+                  <div key={key} className="flex justify-between items-center py-0.5 border-b border-slate-800/40">
+                    <span className="text-xs" style={{ color: colors[idx] }}>{kpi[idx]}</span>
+                    <div className="text-right">
+                      <span className="text-amber-400 font-semibold text-sm">{b}</span>
+                      <span className="text-slate-500 text-xs">（{daily.toFixed(1)}/日）</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </CardContent>
+          </Card>
+        )}
 
         {/* 曜日別グラフ */}
         <Card className="bg-slate-900 border-slate-800">

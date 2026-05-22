@@ -136,3 +136,45 @@ export function totalWorkdays(yearMonth: string): number {
   }
   return count
 }
+
+// ===== 予算ペース計算 =====
+
+// 使える日数 = 月末日 - 3
+export function usableDays(yearMonth: string): number {
+  const [year, month] = yearMonth.split('-').map(Number)
+  const lastDay = new Date(year, month, 0).getDate()
+  return Math.max(1, lastDay - 3)
+}
+
+// 日当たり予算 = 予算 / 使える日数
+export function dailyBudgetRate(budget: number, yearMonth: string): number {
+  const days = usableDays(yearMonth)
+  if (!budget || !days) return 0
+  return budget / days
+}
+
+// 当日までの累積目標 = 日当たり × min(今日の日付, 使える日数)
+export function cumulativeBudgetTarget(budget: number, yearMonth: string): number {
+  const [year, month] = yearMonth.split('-').map(Number)
+  const now = new Date()
+  const isCurrentMonth = now.getFullYear() === year && now.getMonth() + 1 === month
+  const todayDate = isCurrentMonth ? now.getDate() : new Date(year, month, 0).getDate()
+  const days = usableDays(yearMonth)
+  if (!budget || !days) return 0
+  const elapsed = Math.min(todayDate, days)
+  return Math.round((budget / days) * elapsed * 10) / 10
+}
+
+// 今から必要な日当たり = (予算 - 達成数) / 残り使える日数
+export function requiredDailyFromNow(budget: number, achieved: number, yearMonth: string): number {
+  const [year, month] = yearMonth.split('-').map(Number)
+  const now = new Date()
+  const isCurrentMonth = now.getFullYear() === year && now.getMonth() + 1 === month
+  const todayDate = isCurrentMonth ? now.getDate() : new Date(year, month, 0).getDate()
+  const days = usableDays(yearMonth)
+  const remaining = Math.max(0, days - todayDate)
+  if (!remaining || !budget) return 0
+  const deficit = budget - achieved
+  if (deficit <= 0) return 0
+  return Math.ceil((deficit / remaining) * 10) / 10
+}

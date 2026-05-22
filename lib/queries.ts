@@ -208,10 +208,17 @@ export async function getSettings(memberId: string) {
   return data
 }
 
-export async function upsertSettings(memberId: string, goals: Record<string, number>) {
+export async function upsertSettings(memberId: string, goals: Record<string, number>, budgets?: Record<string, number>) {
+  // 予算は b_ prefix で goals JSONB に同梱保存
+  const merged = { ...goals }
+  if (budgets) {
+    Object.entries(budgets).forEach(([key, val]) => {
+      merged[`b_${key}`] = val
+    })
+  }
   const { data, error } = await supabase
     .from('st_settings')
-    .upsert({ member_id: memberId, goals }, { onConflict: 'member_id' })
+    .upsert({ member_id: memberId, goals: merged }, { onConflict: 'member_id' })
     .select()
     .single()
   if (error) throw error

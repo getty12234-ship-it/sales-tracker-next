@@ -114,19 +114,43 @@ export type StCase = {
   created_at: string
 }
 
+export type KpiGoals = {
+  seiyaku: number
+  mendan_exec: number
+  doin_exec: number
+  apo_exec: number
+  offer: number
+  apo_get: number
+  post: number
+  line_exchange: number
+  doin_get: number
+  // 予算は b_ prefix で同じ JSONB に格納
+  [key: string]: number
+}
+
 export type Settings = {
   id?: string
   member_id: string
-  goals: {
-    seiyaku: number
-    mendan_exec: number
-    doin_exec: number
-    apo_exec: number
-    offer: number
-    apo_get: number
-    post: number
-    line_exchange: number
-    doin_get: number
-  }
+  goals: KpiGoals
   updated_at?: string
+}
+
+// goals JSONB から予算を取り出すヘルパー
+export const KPI_KEYS = ['seiyaku','mendan_exec','doin_exec','apo_exec','offer','apo_get','post','line_exchange','doin_get'] as const
+export type KpiKey = typeof KPI_KEYS[number]
+
+export function extractBudgets(goals: Record<string, number>): Record<string, number> {
+  const budgets: Record<string, number> = {}
+  KPI_KEYS.forEach(key => {
+    budgets[key] = goals[`b_${key}`] || 0
+  })
+  return budgets
+}
+
+export function extractGoals(goals: Record<string, number>): Record<string, number> {
+  const g: Record<string, number> = {}
+  KPI_KEYS.forEach(key => {
+    g[key] = goals[key] || 0
+  })
+  return g
 }
