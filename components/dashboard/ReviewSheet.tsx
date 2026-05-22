@@ -2,9 +2,9 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAppState } from '@/lib/store'
-import { getDailyMetrics, getWeeklyReview, upsertWeeklyReview, getSettings } from '@/lib/queries'
-import { getWeekDays, pct, getYearMonth, usableDays, dailyBudgetRate, getMonthDays, cumulativeBudgetTarget, requiredDailyFromNow } from '@/lib/date-utils'
-import { METRIC_FIELDS, METRIC_CATEGORIES, DEFAULT_GOALS, KPI_SUMMARY } from '@/lib/constants'
+import { getDailyMetrics, getWeeklyReview, upsertWeeklyReview, getSettings, getStCases } from '@/lib/queries'
+import { getWeekDays, pct, getYearMonth, usableDays, getMonthDays, cumulativeBudgetTarget, requiredDailyFromNow } from '@/lib/date-utils'
+import { METRIC_FIELDS, DEFAULT_GOALS, KPI_SUMMARY } from '@/lib/constants'
 import { extractBudgets } from '@/lib/supabase'
 import { syncEvents } from './Header'
 import { useEffect, useState, useRef } from 'react'
@@ -12,14 +12,44 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
 import { Plus, Trash2 } from 'lucide-react'
-import type { DailyMetrics, WeeklyReview } from '@/lib/supabase'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import type { DailyMetrics } from '@/lib/supabase'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+
+// --- 原因別アクションの型 ---
+type CauseAction = {
+  action: string
+  deadline: string
+  management: string
+  checked: boolean
+}
+type CauseGroup = {
+  cause: string
+  actions: CauseAction[]
+}
+
+// 旧フォーマット（flat）から新フォーマット（grouped）へ移行
+function migrateCauseActions(raw: any[]): CauseGroup[] {
+  if (!raw || raw.length === 0) return []
+  if (raw[0] && 'cause' in raw[0]) return raw as CauseGroup[]
+  // 旧形式: 全アクションを1グループにまとめる
+  return [{
+    cause: '',
+    actions: raw.map((item: any) => ({
+      action: item.action || '',
+      deadline: item.deadline || '',
+      management: '',
+      checked: false,
+    })),
+  }]
+}
+
+const CAUSE_COLORS = ['#eab308', '#3b82f6', '#8b5cf6', '#22c55e', '#f97316', '#ec4899']
+const CAUSE_LABELS = ['1番', '2番', '3番', '4番', '5番', '6番']
 
 interface ReviewSheetProps {
-  weekStart?: string   // 省略時はcontextのcurrentWeekStartを使用
-  readOnly?: boolean   // 読み取り専用モード
+  weekStart?: string
+  readOnly?: boolean
 }
 
 export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: ReviewSheetProps = {}) {
@@ -37,7 +67,6 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
     enabled: !!currentMember,
   })
 
-  // 月次データ（KPIサマリー表示用）
   const monthDays = getMonthDays(ym)
   const { data: monthMetrics = [] } = useQuery({
     queryKey: ['daily_metrics_month', currentMember?.id, ym],
@@ -57,6 +86,12 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
     enabled: !!currentMember,
   })
 
+  const { data: cases = [] } = useQuery({
+    queryKey: ['st_cases', currentMember?.id],
+    queryFn: () => getStCases(currentMember!.id),
+    enabled: !!currentMember,
+  })
+
   const { mutateAsync: save } = useMutation({
     mutationFn: upsertWeeklyReview,
     onSuccess: (data) => {
@@ -67,12 +102,11 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
     onError: () => syncEvents.emit('error'),
   })
 
-  // ローカル状態（入力の遅延保存）
   const [form, setForm] = useState({
     main_issue: '',
     main_cause: '',
     top_action: '',
-    cause_actions: [] as { action: string; deadline: string }[],
+    cause_groups: [] as CauseGroup[],
     muchaku_reasons: [] as { reason: string; count: number }[],
     ng_reasons: [] as { reason: string; count: number }[],
     doin_muchaku_list: [] as { date: string; customer: string; closer: string; reason: string }[],
@@ -84,7 +118,7 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
         main_issue: review.main_issue || '',
         main_cause: review.main_cause || '',
         top_action: review.top_action || '',
-        cause_actions: (review.cause_actions as any) || [],
+        cause_groups: migrateCauseActions((review.cause_actions as any) || []),
         muchaku_reasons: (review.muchaku_reasons as any) || [],
         ng_reasons: (review.ng_reasons as any) || [],
         doin_muchaku_list: (review.doin_muchaku_list as any) || [],
@@ -103,25 +137,26 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
       save({
         member_id: currentMember.id,
         week_start_date: weekStart,
-        ...next,
+        main_issue: next.main_issue,
+        main_cause: next.main_cause,
+        top_action: next.top_action,
+        cause_actions: next.cause_groups as any, // cause_groupsをcause_actionsカラムに保存
+        muchaku_reasons: next.muchaku_reasons,
+        ng_reasons: next.ng_reasons,
+        doin_muchaku_list: next.doin_muchaku_list,
       })
     }, 800)
   }
 
-  // 予算情報
   const rawGoals = (settings?.goals as Record<string, number>) || {}
   const goalVals: Record<string, number> = { ...DEFAULT_GOALS, ...rawGoals }
   const budgets = extractBudgets(rawGoals)
-  const hasBudgets = Object.values(budgets).some(v => v > 0)
-  const days = usableDays(ym)
 
-  // 週合計
   const totals: Record<string, number> = {}
   METRIC_FIELDS.forEach(({ key }) => {
     totals[key] = metrics.reduce((sum, m) => sum + ((m[key as keyof DailyMetrics] as number) || 0), 0)
   })
 
-  // 月次合計
   const monthTotals: Record<string, number> = {}
   METRIC_FIELDS.forEach(({ key }) => {
     monthTotals[key] = monthMetrics.reduce((sum, m) => sum + ((m[key as keyof DailyMetrics] as number) || 0), 0)
@@ -133,15 +168,15 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
 
   return (
     <div className={`grid grid-cols-1 xl:grid-cols-3 gap-4 ${readOnly ? 'opacity-80' : ''}`}>
-      {/* 左: KPIサマリー + 週次実績 */}
+      {/* ===== 左列: KPI・実績・内訳 ===== */}
       <div className="xl:col-span-1 space-y-3">
 
-        {/* ① 月次KPIサマリー（予算・目標・達成率） */}
+        {/* ① 月次KPIサマリー */}
         <Card className="bg-slate-900 border-slate-800">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
               📊 月次KPI実績
-              <span className="text-xs font-normal text-slate-500">{ym.replace('-','年')}月</span>
+              <span className="text-xs font-normal text-slate-500">{ym.replace('-', '年')}月</span>
               {readOnly && <span className="text-xs font-normal text-slate-600">（読み取り専用）</span>}
             </CardTitle>
           </CardHeader>
@@ -152,16 +187,12 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
                 const budget = budgets[key] || 0
                 const goal = goalVals[key] || 0
                 const rate = pct(val, goal)
-                const budgetRate = budget > 0 ? pct(val, budget) : 0
                 const progressColor = rate >= 100 ? '#22c55e' : rate >= 70 ? '#eab308' : '#ef4444'
                 const cumTarget = budget > 0 ? cumulativeBudgetTarget(budget, ym) : 0
                 const reqDaily = budget > 0 ? requiredDailyFromNow(budget, val, ym) : 0
                 const isOnTrack = budget > 0 ? val >= cumTarget : true
                 return (
-                  <div
-                    key={key}
-                    className={`rounded-lg p-2 ${important ? 'bg-slate-800 ring-1 ring-indigo-500/20' : 'bg-slate-800/50'}`}
-                  >
+                  <div key={key} className={`rounded-lg p-2 ${important ? 'bg-slate-800 ring-1 ring-indigo-500/20' : 'bg-slate-800/50'}`}>
                     <div className="text-[10px] text-slate-500 truncate mb-0.5">{label}</div>
                     <div className="text-lg font-bold leading-tight" style={{ color }}>{val}</div>
                     {budget > 0 ? (
@@ -172,19 +203,13 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
                     ) : (
                       <div className="text-[10px] text-slate-600">目標 {goal}</div>
                     )}
-                    {/* プログレスバー */}
                     <div className="w-full h-1 bg-slate-700 rounded-full mt-1.5">
-                      <div
-                        className="h-full rounded-full transition-all"
-                        style={{ width: `${Math.min(100, rate)}%`, background: progressColor }}
-                      />
+                      <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, rate)}%`, background: progressColor }} />
                     </div>
                     <div className="flex justify-between mt-0.5">
                       <span className="text-[10px]" style={{ color: progressColor }}>{rate}%</span>
                       {budget > 0 && reqDaily > 0 && val < budget ? (
-                        <span className={`text-[9px] ${isOnTrack ? 'text-slate-500' : 'text-red-400'}`}>
-                          {reqDaily}/日
-                        </span>
+                        <span className={`text-[9px] ${isOnTrack ? 'text-slate-500' : 'text-red-400'}`}>{reqDaily}/日</span>
                       ) : budget > 0 && val >= budget ? (
                         <span className="text-[9px] text-green-400">✓</span>
                       ) : null}
@@ -196,7 +221,7 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
           </CardContent>
         </Card>
 
-        {/* ② 週次実績（今週の収支） */}
+        {/* ② 今週の収支実績 */}
         <Card className="bg-slate-900 border-slate-800">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-slate-300">今週の収支実績</CardTitle>
@@ -221,24 +246,18 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
                   <span className="text-xs w-16 shrink-0" style={{ color }}>{label}</span>
                   <span className="text-sm font-bold text-slate-100 w-6 text-right shrink-0">{weekVal}</span>
                   <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                    <div
-                      className="h-full rounded-full"
-                      style={{ width: `${Math.min(100, weekShare)}%`, background: color }}
-                    />
+                    <div className="h-full rounded-full" style={{ width: `${Math.min(100, weekShare)}%`, background: color }} />
                   </div>
-                  <span className="text-[10px] text-slate-500 w-12 text-right shrink-0">
-                    月計 {monthVal}
-                  </span>
+                  <span className="text-[10px] text-slate-500 w-12 text-right shrink-0">月計 {monthVal}</span>
                 </div>
               )
             })}
-            {/* 変換率 */}
             <div className="pt-2 grid grid-cols-2 gap-x-3 gap-y-0.5">
               {[
-                { label: '無着地率',  value: pct(totals.muchaku, totals.apo_exec),  color: '#f87171' },
-                { label: 'NG率',      value: pct(totals.ng,      totals.apo_exec),  color: '#fb923c' },
-                { label: 'オファー率',value: pct(totals.offer,   totals.apo_exec),  color: '#f59e0b' },
-                { label: '成約率',    value: pct(totals.seiyaku, totals.doin_exec), color: '#22c55e' },
+                { label: '無着地率',   value: pct(totals.muchaku, totals.apo_exec),  color: '#f87171' },
+                { label: 'NG率',       value: pct(totals.ng,      totals.apo_exec),  color: '#fb923c' },
+                { label: 'オファー率', value: pct(totals.offer,   totals.apo_exec),  color: '#f59e0b' },
+                { label: '成約率',     value: pct(totals.seiyaku, totals.doin_exec), color: '#22c55e' },
               ].map(({ label, value, color }) => (
                 <div key={label} className="flex justify-between items-center py-0.5">
                   <span className="text-[10px] text-slate-500">{label}</span>
@@ -249,10 +268,168 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
           </CardContent>
         </Card>
 
-        {/* 曜日別グラフ */}
+        {/* ③ 無着地打ち分け */}
+        <Card className="bg-slate-900 border-red-900/30 border">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm text-slate-300 flex items-center gap-1.5">
+                😶 無着地打ち分け
+                <span className="text-xs font-normal text-slate-500">計{totals.muchaku || 0}件</span>
+              </CardTitle>
+              {!readOnly && (
+                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-slate-500 hover:text-slate-300"
+                  onClick={() => debouncedSave({ muchaku_reasons: [...form.muchaku_reasons, { reason: '', count: 0 }] })}>
+                  <Plus className="w-3 h-3" />
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="p-3 pt-0 space-y-1.5">
+            {form.muchaku_reasons.length === 0 && (
+              <p className="text-xs text-slate-600">{readOnly ? '（記録なし）' : '＋で追加、または日別入力の？から'}</p>
+            )}
+            {form.muchaku_reasons.map((item, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full shrink-0 bg-red-400" />
+                {readOnly ? (
+                  <span className="text-xs text-slate-300 flex-1 truncate">{item.reason || '（未記入）'}</span>
+                ) : (
+                  <Input
+                    className="bg-slate-950 border-slate-700 text-xs h-6 flex-1"
+                    value={item.reason}
+                    onChange={e => {
+                      const next = [...form.muchaku_reasons]
+                      next[i] = { ...next[i], reason: e.target.value }
+                      debouncedSave({ muchaku_reasons: next })
+                    }}
+                    placeholder="理由"
+                  />
+                )}
+                {!readOnly ? (
+                  <Input
+                    type="number"
+                    className="bg-slate-950 border-slate-700 text-xs h-6 w-12 text-center"
+                    value={item.count || ''}
+                    onChange={e => {
+                      const next = [...form.muchaku_reasons]
+                      next[i] = { ...next[i], count: parseInt(e.target.value) || 0 }
+                      debouncedSave({ muchaku_reasons: next })
+                    }}
+                    placeholder="0"
+                  />
+                ) : (
+                  <span className="text-sm font-bold text-red-400 w-8 text-right">{item.count}</span>
+                )}
+                {!readOnly && (
+                  <Button variant="ghost" size="icon" className="h-6 w-6 text-slate-600 hover:text-red-400"
+                    onClick={() => debouncedSave({ muchaku_reasons: form.muchaku_reasons.filter((_, j) => j !== i) })}>
+                    <Trash2 className="w-3 h-3" />
+                  </Button>
+                )}
+              </div>
+            ))}
+            {/* 最多理由 */}
+            {form.muchaku_reasons.length > 0 && (() => {
+              const top = [...form.muchaku_reasons].filter(r => r.count > 0).sort((a, b) => b.count - a.count)[0]
+              if (!top) return null
+              return (
+                <div className="mt-1 pt-1 border-t border-slate-800/60">
+                  <span className="text-[10px] text-amber-400">最多: </span>
+                  <span className="text-[10px] text-white">{top.reason}（{top.count}件）</span>
+                </div>
+              )
+            })()}
+          </CardContent>
+        </Card>
+
+        {/* ④ NG打ち分け */}
+        <Card className="bg-slate-900 border-orange-900/30 border">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm text-slate-300 flex items-center gap-1.5">
+                ❌ NG打ち分け
+                <span className="text-xs font-normal text-slate-500">計{totals.ng || 0}件</span>
+              </CardTitle>
+              {!readOnly && (
+                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-slate-500 hover:text-slate-300"
+                  onClick={() => debouncedSave({ ng_reasons: [...form.ng_reasons, { reason: '', count: 0 }] })}>
+                  <Plus className="w-3 h-3" />
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="p-3 pt-0 space-y-1.5">
+            {form.ng_reasons.length === 0 && (
+              <p className="text-xs text-slate-600">{readOnly ? '（記録なし）' : '＋で追加、または日別入力の？から'}</p>
+            )}
+            {form.ng_reasons.map((item, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full shrink-0 bg-orange-400" />
+                {readOnly ? (
+                  <span className="text-xs text-slate-300 flex-1 truncate">{item.reason || '（未記入）'}</span>
+                ) : (
+                  <Input
+                    className="bg-slate-950 border-slate-700 text-xs h-6 flex-1"
+                    value={item.reason}
+                    onChange={e => {
+                      const next = [...form.ng_reasons]
+                      next[i] = { ...next[i], reason: e.target.value }
+                      debouncedSave({ ng_reasons: next })
+                    }}
+                    placeholder="理由"
+                  />
+                )}
+                {!readOnly ? (
+                  <Input
+                    type="number"
+                    className="bg-slate-950 border-slate-700 text-xs h-6 w-12 text-center"
+                    value={item.count || ''}
+                    onChange={e => {
+                      const next = [...form.ng_reasons]
+                      next[i] = { ...next[i], count: parseInt(e.target.value) || 0 }
+                      debouncedSave({ ng_reasons: next })
+                    }}
+                    placeholder="0"
+                  />
+                ) : (
+                  <span className="text-sm font-bold text-orange-400 w-8 text-right">{item.count}</span>
+                )}
+                {!readOnly && (
+                  <Button variant="ghost" size="icon" className="h-6 w-6 text-slate-600 hover:text-red-400"
+                    onClick={() => debouncedSave({ ng_reasons: form.ng_reasons.filter((_, j) => j !== i) })}>
+                    <Trash2 className="w-3 h-3" />
+                  </Button>
+                )}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        {/* ⑤ ターン案件・動員 */}
         <Card className="bg-slate-900 border-slate-800">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-slate-300">曜日別 アポ獲得・動員実施・成約</CardTitle>
+            <CardTitle className="text-sm text-slate-300 flex items-center gap-1.5">
+              🔄 ターン案件・動員
+              <span className="text-xs font-normal text-slate-500">{cases.length}件</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-3 pt-0 space-y-1">
+            {cases.length === 0 && <p className="text-xs text-slate-600">案件なし</p>}
+            {cases.slice(0, 8).map((c) => (
+              <div key={c.id} className="flex items-center gap-2 py-0.5 border-b border-slate-800/40">
+                <span className="text-xs text-slate-200 flex-1 truncate">{c.customer_name}</span>
+                <span className="text-[10px] text-indigo-400 shrink-0 truncate max-w-[80px]">{c.next_action}</span>
+                <span className="text-[10px] text-slate-600 shrink-0">{c.next_action_date}</span>
+              </div>
+            ))}
+            {cases.length > 8 && <p className="text-[10px] text-slate-600 pt-1">他 {cases.length - 8}件...</p>}
+          </CardContent>
+        </Card>
+
+        {/* ⑥ 曜日別グラフ */}
+        <Card className="bg-slate-900 border-slate-800">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-slate-300">曜日別 アポ・動員・成約</CardTitle>
           </CardHeader>
           <CardContent className="p-2">
             {(() => {
@@ -267,7 +444,7 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
                 }
               })
               return (
-                <ResponsiveContainer width="100%" height={140}>
+                <ResponsiveContainer width="100%" height={120}>
                   <BarChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                     <XAxis dataKey="day" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
@@ -281,10 +458,12 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
             })()}
           </CardContent>
         </Card>
+
       </div>
 
-      {/* 右: 施策シートフォーム */}
+      {/* ===== 右列: 施策シートフォーム ===== */}
       <div className="xl:col-span-2 space-y-4">
+
         {/* メイン課題 */}
         <Card className="bg-slate-900 border-slate-800">
           <CardHeader className="pb-2">
@@ -324,90 +503,23 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
           </CardContent>
         </Card>
 
-        {/* 原因別アクション */}
-        <ActionList
-          title="原因別アクションリスト"
+        {/* 原因別アクション（交互表示） */}
+        <CauseGroupList
+          groups={form.cause_groups}
           readOnly={readOnly}
-          items={form.cause_actions}
-          renderItem={(item, i) => (
-            <div className="flex gap-2 items-center">
-              <Input
-                className="bg-slate-950 border-slate-700 text-xs h-7 flex-1"
-                value={item.action}
-                onChange={e => {
-                  if (readOnly) return
-                  const next = [...form.cause_actions]
-                  next[i] = { ...next[i], action: e.target.value }
-                  debouncedSave({ cause_actions: next })
-                }}
-                readOnly={readOnly}
-                placeholder="アクション内容"
-              />
-              <Input
-                className="bg-slate-950 border-slate-700 text-xs h-7 w-28"
-                value={item.deadline}
-                onChange={e => {
-                  if (readOnly) return
-                  const next = [...form.cause_actions]
-                  next[i] = { ...next[i], deadline: e.target.value }
-                  debouncedSave({ cause_actions: next })
-                }}
-                readOnly={readOnly}
-                placeholder="期限"
-              />
-              {!readOnly && (
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-500 hover:text-red-400"
-                  onClick={() => debouncedSave({ cause_actions: form.cause_actions.filter((_, j) => j !== i) })}>
-                  <Trash2 className="w-3.5 h-3.5" />
-                </Button>
-              )}
-            </div>
-          )}
-          onAdd={() => !readOnly && debouncedSave({ cause_actions: [...form.cause_actions, { action: '', deadline: '' }] })}
+          onChange={groups => debouncedSave({ cause_groups: groups })}
         />
 
-        {/* 無着地理由 */}
-        <ReasonList
-          title={`無着地理由 (計: ${totals.muchaku || 0}件)`}
-          readOnly={readOnly}
-          items={form.muchaku_reasons}
-          onChange={next => !readOnly && debouncedSave({ muchaku_reasons: next })}
-        />
-
-        {/* 最多無着地理由（自動計算） */}
-        {form.muchaku_reasons.length > 0 && (() => {
-          const top = [...form.muchaku_reasons].filter(r => r.count > 0).sort((a, b) => b.count - a.count)[0]
-          if (!top) return null
-          return (
-            <Card className="bg-slate-900 border-amber-800/40 border">
-              <CardContent className="pt-3 pb-3">
-                <div className="text-xs text-amber-400 font-semibold">
-                  ⚠️ 最多無着地理由: <span className="text-white">{top.reason}（{top.count}件）</span>
-                </div>
-                <div className="text-xs text-slate-500 mt-1">↑ この理由への対策を「最重要アクション」に記入してください</div>
-              </CardContent>
-            </Card>
-          )
-        })()}
-
-        {/* NG理由 */}
-        <ReasonList
-          title={`NG理由 (計: ${totals.ng || 0}件)`}
-          readOnly={readOnly}
-          items={form.ng_reasons}
-          onChange={next => !readOnly && debouncedSave({ ng_reasons: next })}
-        />
-
-        {/* 動員後無着地リスト */}
+        {/* キャンセル・動員後無着地リスト */}
         <Card className="bg-slate-900 border-slate-800">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm text-slate-300">
-                動員後無着地リスト ({form.doin_muchaku_list.length}件)
+                キャンセル・動員後無着地 ({form.doin_muchaku_list.length}件)
               </CardTitle>
               {!readOnly && (
                 <Button variant="ghost" size="sm" className="h-7 text-xs text-red-400 hover:text-red-300"
-                  onClick={() => !readOnly && debouncedSave({
+                  onClick={() => debouncedSave({
                     doin_muchaku_list: [...form.doin_muchaku_list, { date: '', customer: '', closer: '', reason: '' }]
                   })}>
                   <Plus className="w-3.5 h-3.5 mr-1" />追加
@@ -421,26 +533,18 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
             )}
             {form.doin_muchaku_list.map((item, i) => (
               <div key={i} className="flex gap-2 items-center flex-wrap">
-                <Input
-                  className="bg-slate-950 border-slate-700 text-xs h-7 w-24"
+                <Input className="bg-slate-950 border-slate-700 text-xs h-7 w-24"
                   value={item.date} readOnly={readOnly} placeholder="日付"
-                  onChange={e => { if (readOnly) return; const next = [...form.doin_muchaku_list]; next[i] = { ...next[i], date: e.target.value }; debouncedSave({ doin_muchaku_list: next }) }}
-                />
-                <Input
-                  className="bg-slate-950 border-slate-700 text-xs h-7 flex-1 min-w-[80px]"
+                  onChange={e => { if (readOnly) return; const next = [...form.doin_muchaku_list]; next[i] = { ...next[i], date: e.target.value }; debouncedSave({ doin_muchaku_list: next }) }} />
+                <Input className="bg-slate-950 border-slate-700 text-xs h-7 flex-1 min-w-[80px]"
                   value={item.customer} readOnly={readOnly} placeholder="顧客名"
-                  onChange={e => { if (readOnly) return; const next = [...form.doin_muchaku_list]; next[i] = { ...next[i], customer: e.target.value }; debouncedSave({ doin_muchaku_list: next }) }}
-                />
-                <Input
-                  className="bg-slate-950 border-slate-700 text-xs h-7 w-20"
+                  onChange={e => { if (readOnly) return; const next = [...form.doin_muchaku_list]; next[i] = { ...next[i], customer: e.target.value }; debouncedSave({ doin_muchaku_list: next }) }} />
+                <Input className="bg-slate-950 border-slate-700 text-xs h-7 w-20"
                   value={item.closer} readOnly={readOnly} placeholder="クローザー"
-                  onChange={e => { if (readOnly) return; const next = [...form.doin_muchaku_list]; next[i] = { ...next[i], closer: e.target.value }; debouncedSave({ doin_muchaku_list: next }) }}
-                />
-                <Input
-                  className="bg-slate-950 border-slate-700 text-xs h-7 flex-1 min-w-[80px]"
+                  onChange={e => { if (readOnly) return; const next = [...form.doin_muchaku_list]; next[i] = { ...next[i], closer: e.target.value }; debouncedSave({ doin_muchaku_list: next }) }} />
+                <Input className="bg-slate-950 border-slate-700 text-xs h-7 flex-1 min-w-[80px]"
                   value={item.reason} readOnly={readOnly} placeholder="無着地理由"
-                  onChange={e => { if (readOnly) return; const next = [...form.doin_muchaku_list]; next[i] = { ...next[i], reason: e.target.value }; debouncedSave({ doin_muchaku_list: next }) }}
-                />
+                  onChange={e => { if (readOnly) return; const next = [...form.doin_muchaku_list]; next[i] = { ...next[i], reason: e.target.value }; debouncedSave({ doin_muchaku_list: next }) }} />
                 {!readOnly && (
                   <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-500 hover:text-red-400 shrink-0"
                     onClick={() => debouncedSave({ doin_muchaku_list: form.doin_muchaku_list.filter((_, j) => j !== i) })}>
@@ -451,94 +555,177 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
             ))}
           </CardContent>
         </Card>
+
       </div>
     </div>
   )
 }
 
-function ActionList({ title, items, renderItem, onAdd, readOnly = false }: {
-  title: string
-  items: any[]
-  renderItem: (item: any, i: number) => React.ReactNode
-  onAdd: () => void
-  readOnly?: boolean
+// ===== 原因別アクションリスト（交互表示）コンポーネント =====
+function CauseGroupList({
+  groups,
+  readOnly,
+  onChange,
+}: {
+  groups: CauseGroup[]
+  readOnly: boolean
+  onChange: (groups: CauseGroup[]) => void
 }) {
-  return (
-    <Card className="bg-slate-900 border-slate-800">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm text-slate-300">{title}</CardTitle>
-          {!readOnly && (
-            <Button variant="ghost" size="sm" className="h-7 text-xs text-indigo-400 hover:text-indigo-300" onClick={onAdd}>
-              <Plus className="w-3.5 h-3.5 mr-1" />追加
-            </Button>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-2">
-        {items.length === 0 && <p className="text-xs text-slate-600">追加ボタンで入力</p>}
-        {items.map((item, i) => renderItem(item, i))}
-      </CardContent>
-    </Card>
-  )
-}
+  const addGroup = () => {
+    onChange([...groups, { cause: '', actions: [] }])
+  }
 
-function ReasonList({ title, items, onChange, readOnly = false }: {
-  title: string
-  items: { reason: string; count: number }[]
-  onChange: (items: { reason: string; count: number }[]) => void
-  readOnly?: boolean
-}) {
+  const removeGroup = (gi: number) => {
+    onChange(groups.filter((_, i) => i !== gi))
+  }
+
+  const updateGroupCause = (gi: number, cause: string) => {
+    const next = [...groups]
+    next[gi] = { ...next[gi], cause }
+    onChange(next)
+  }
+
+  const addAction = (gi: number) => {
+    const next = [...groups]
+    next[gi] = {
+      ...next[gi],
+      actions: [...next[gi].actions, { action: '', deadline: '', management: '', checked: false }],
+    }
+    onChange(next)
+  }
+
+  const updateAction = (gi: number, ai: number, updates: Partial<CauseAction>) => {
+    const next = [...groups]
+    const actions = [...next[gi].actions]
+    actions[ai] = { ...actions[ai], ...updates }
+    next[gi] = { ...next[gi], actions }
+    onChange(next)
+  }
+
+  const removeAction = (gi: number, ai: number) => {
+    const next = [...groups]
+    next[gi] = { ...next[gi], actions: next[gi].actions.filter((_, i) => i !== ai) }
+    onChange(next)
+  }
+
   return (
     <Card className="bg-slate-900 border-slate-800">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm text-slate-300">{title}</CardTitle>
+          <CardTitle className="text-sm text-slate-300">原因別アクションリスト</CardTitle>
           {!readOnly && (
-            <Button variant="ghost" size="sm" className="h-7 text-xs text-indigo-400 hover:text-indigo-300"
-              onClick={() => onChange([...items, { reason: '', count: 0 }])}>
-              <Plus className="w-3.5 h-3.5 mr-1" />追加
+            <Button variant="ghost" size="sm" className="h-7 text-xs text-indigo-400 hover:text-indigo-300" onClick={addGroup}>
+              <Plus className="w-3.5 h-3.5 mr-1" />原因追加
             </Button>
           )}
         </div>
       </CardHeader>
-      <CardContent className="space-y-2">
-        {items.length === 0 && <p className="text-xs text-slate-600">{readOnly ? '（記録なし）' : '追加ボタンで入力'}</p>}
-        {items.map((item, i) => (
-          <div key={i} className="flex gap-2 items-center">
-            <Input
-              className="bg-slate-950 border-slate-700 text-xs h-7 flex-1"
-              value={item.reason}
-              onChange={e => {
-                if (readOnly) return
-                const next = [...items]
-                next[i] = { ...next[i], reason: e.target.value }
-                onChange(next)
-              }}
-              readOnly={readOnly}
-              placeholder="理由"
-            />
-            <Input
-              type="number"
-              className="bg-slate-950 border-slate-700 text-xs h-7 w-16 text-center"
-              value={item.count || ''}
-              onChange={e => {
-                if (readOnly) return
-                const next = [...items]
-                next[i] = { ...next[i], count: parseInt(e.target.value) || 0 }
-                onChange(next)
-              }}
-              readOnly={readOnly}
-              placeholder="件数"
-            />
-            {!readOnly && (
-              <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-500 hover:text-red-400"
-                onClick={() => onChange(items.filter((_, j) => j !== i))}>
-                <Trash2 className="w-3.5 h-3.5" />
-              </Button>
-            )}
-          </div>
-        ))}
+      <CardContent className="space-y-3 p-3 pt-0">
+        {groups.length === 0 && (
+          <p className="text-xs text-slate-600">{readOnly ? '（記録なし）' : '「原因追加」で入力'}</p>
+        )}
+        {groups.map((group, gi) => {
+          const color = CAUSE_COLORS[gi % CAUSE_COLORS.length]
+          const label = CAUSE_LABELS[gi] || `${gi + 1}番`
+          return (
+            <div key={gi} className="rounded-lg border border-slate-700/40 overflow-hidden">
+              {/* 原因ヘッダー行 */}
+              <div
+                className="flex items-center gap-2 px-3 py-2"
+                style={{ background: `${color}15`, borderLeft: `3px solid ${color}` }}
+              >
+                <span className="text-xs font-bold shrink-0 w-8" style={{ color }}>{label}</span>
+                {readOnly ? (
+                  <span className="text-sm text-slate-200 flex-1">{group.cause || '（原因未記入）'}</span>
+                ) : (
+                  <Input
+                    className="bg-transparent border-0 text-sm text-slate-100 h-7 flex-1 px-1 focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 shadow-none"
+                    value={group.cause}
+                    onChange={e => updateGroupCause(gi, e.target.value)}
+                    placeholder={`原因${gi + 1}を入力`}
+                  />
+                )}
+                {!readOnly && (
+                  <Button variant="ghost" size="icon" className="h-6 w-6 text-slate-600 hover:text-red-400 shrink-0"
+                    onClick={() => removeGroup(gi)}>
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                )}
+              </div>
+
+              {/* 対策（アクション）一覧 */}
+              <div className="px-3 py-2 space-y-2 bg-slate-950/20">
+                {group.actions.length === 0 && (
+                  <p className="text-xs text-slate-600">{readOnly ? '（対策なし）' : '「対策追加」で入力'}</p>
+                )}
+                {group.actions.map((act, ai) => (
+                  <div key={ai} className="space-y-1 pl-2 border-l border-slate-700/40">
+                    {/* アクション行 */}
+                    <div className="flex gap-2 items-center">
+                      {!readOnly && (
+                        <input
+                          type="checkbox"
+                          checked={act.checked}
+                          onChange={e => updateAction(gi, ai, { checked: e.target.checked })}
+                          className="w-3.5 h-3.5 shrink-0 accent-indigo-500 cursor-pointer"
+                        />
+                      )}
+                      {readOnly ? (
+                        <span className={`text-xs flex-1 ${act.checked ? 'line-through text-slate-500' : 'text-slate-200'}`}>
+                          {act.action || '（未記入）'}
+                        </span>
+                      ) : (
+                        <Input
+                          className="bg-slate-950 border-slate-700 text-xs h-7 flex-1"
+                          value={act.action}
+                          onChange={e => updateAction(gi, ai, { action: e.target.value })}
+                          placeholder="対策内容"
+                        />
+                      )}
+                      {readOnly ? (
+                        <span className="text-[10px] text-slate-500 shrink-0">{act.deadline}</span>
+                      ) : (
+                        <Input
+                          className="bg-slate-950 border-slate-700 text-xs h-7 w-24 shrink-0"
+                          value={act.deadline}
+                          onChange={e => updateAction(gi, ai, { deadline: e.target.value })}
+                          placeholder="期限"
+                        />
+                      )}
+                      {!readOnly && (
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-500 hover:text-red-400 shrink-0"
+                          onClick={() => removeAction(gi, ai)}>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      )}
+                    </div>
+                    {/* 管理方法行 */}
+                    <div className="flex items-center gap-2 pl-5">
+                      <span className="text-[10px] text-slate-500 shrink-0">管理方法:</span>
+                      {readOnly ? (
+                        <span className="text-[10px] text-slate-400">{act.management || '—'}</span>
+                      ) : (
+                        <Input
+                          className="bg-slate-950/60 border-slate-800 text-[10px] h-6 flex-1 text-slate-400 placeholder:text-slate-700"
+                          value={act.management}
+                          onChange={e => updateAction(gi, ai, { management: e.target.value })}
+                          placeholder="管理方法を自由記述"
+                        />
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {!readOnly && (
+                  <Button variant="ghost" size="sm"
+                    className="h-6 text-[11px] text-slate-500 hover:text-indigo-300 px-1"
+                    onClick={() => addAction(gi)}>
+                    <Plus className="w-3 h-3 mr-0.5" />対策追加
+                  </Button>
+                )}
+              </div>
+            </div>
+          )
+        })}
       </CardContent>
     </Card>
   )
