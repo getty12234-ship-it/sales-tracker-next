@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useAppState } from '@/lib/store'
 import { getDailyMetrics, getSettings, getStCases, upsertStCase, deleteStCase, getWeeklyReviews } from '@/lib/queries'
-import { getMonthDays, currentYearMonth, pct, remainingWorkdays, passedWorkdays, totalWorkdays, usableDays, dailyBudgetRate, cumulativeBudgetTarget, requiredDailyFromNow } from '@/lib/date-utils'
+import { getMonthDays, currentYearMonth, pct, remainingWorkdays, passedWorkdays, totalWorkdays, usableDays, dailyBudgetRate, cumulativeBudgetTarget, requiredDailyFromNow, endOfMonth } from '@/lib/date-utils'
 import { KPI_SUMMARY, DEFAULT_GOALS, METRIC_FIELDS } from '@/lib/constants'
 import type { DailyMetrics, StCase } from '@/lib/supabase'
 import { extractBudgets } from '@/lib/supabase'
@@ -88,7 +88,7 @@ export function SummaryDashboard() {
 
   const { data: weeklyReviews = [] } = useQuery({
     queryKey: ['weekly_reviews_month', currentMember?.id, ym],
-    queryFn: () => getWeeklyReviews(currentMember!.id, `${ym}-01`, `${ym}-31`),
+    queryFn: () => getWeeklyReviews(currentMember!.id, `${ym}-01`, endOfMonth(ym)),
     enabled: !!currentMember,
   })
 

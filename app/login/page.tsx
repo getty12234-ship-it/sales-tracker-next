@@ -110,14 +110,21 @@ function SignupForm({ router }: { router: ReturnType<typeof useRouter> }) {
     if (password.length < 6) { setError('パスワードは6文字以上にしてください'); return }
     setLoading(true); setError('')
     try {
-      const { data, error: authErr } = await supabase.auth.signUp({ email, password })
+      // メタデータを options.data で渡す → DBトリガーが auth.users INSERT 時に st_members を自動作成
+      const { data, error: authErr } = await supabase.auth.signUp({
+        email, password,
+        options: { data: { st_signup: true, name: name.trim(), color, team } }
+      })
       if (authErr) throw new Error(authErr.message)
       if (!data.user) throw new Error('ユーザー作成に失敗しました')
-      const { error: mErr } = await supabase
-        .from('st_members')
-        .insert({ name: name.trim(), color, team, user_id: data.user.id })
-      if (mErr) throw new Error('メンバー登録に失敗: ' + mErr.message)
-      await supabase.auth.signInWithPassword({ email, password })
+      // セッションが付かない設定の場合に備えて明示的にサインイン
+      const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password })
+      if (signInErr) {
+        // メール確認待ち等の場合
+        setError('登録は完了しました。メールが届いた場合は確認してからログインしてください。')
+        setLoading(false)
+        return
+      }
       router.push('/dashboard'); router.refresh()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '登録に失敗しました')

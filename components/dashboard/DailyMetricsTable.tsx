@@ -13,9 +13,6 @@ import { Download, Upload, HelpCircle, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
-// debounce用タイマー管理
-const saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
-
 // NGの内訳プリセット
 const NG_PRESETS = ['金策NG', '既婚NG', '職業NG', 'スタンスNG', '精神NG']
 // 無着地の内訳プリセット
@@ -25,6 +22,9 @@ export function DailyMetricsTable() {
   const { currentMember, currentWeekStart } = useAppState()
   const queryClient = useQueryClient()
   const weekDays = getWeekDays(currentWeekStart)
+
+  // debounce用タイマー（コンポーネントスコープ。メンバー切替時のクロスtalk防止）
+  const saveTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 
   // 内訳モーダルの状態
   const [breakdownModal, setBreakdownModal] = useState<'ng' | 'muchaku' | null>(null)
@@ -79,6 +79,8 @@ export function DailyMetricsTable() {
     mutationFn: upsertWeeklyReview,
     onSuccess: (data) => {
       queryClient.setQueryData(['weekly_review', currentMember?.id, currentWeekStart], data)
+      // SummaryDashboard 月次集計の無着地/NG理由ランキングも最新化
+      queryClient.invalidateQueries({ queryKey: ['weekly_reviews_month', currentMember?.id] })
     },
   })
 
@@ -98,18 +100,21 @@ export function DailyMetricsTable() {
       }
     )
 
-    // デバウンス保存 (600ms)
-    const key = `${currentMember.id}_${date}`
-    if (saveTimers.has(key)) clearTimeout(saveTimers.get(key)!)
+    // デバウンス保存 (600ms) - currentMemberとcurrentWeekStartをクロージャでキャプチャ
+    const memberId = currentMember.id
+    const weekStart = currentWeekStart
+    const key = `${memberId}_${date}`
+    const timers = saveTimersRef.current
+    if (timers.has(key)) clearTimeout(timers.get(key)!)
 
     syncEvents.emit('saving')
-    saveTimers.set(key, setTimeout(async () => {
+    timers.set(key, setTimeout(async () => {
       const current = (queryClient.getQueryData<DailyMetrics[]>(
-        ['daily_metrics', currentMember.id, currentWeekStart]
+        ['daily_metrics', memberId, weekStart]
       ) || []).find(m => m.date === date)
 
       await save({
-        member_id: currentMember.id,
+        member_id: memberId,
         date,
         post: 0, line_exchange: 0, apo_get: 0, apo_exec: 0, apo_cxl: 0,
         test_close: 0, offer: 0, ng: 0, muchaku: 0,
@@ -117,7 +122,7 @@ export function DailyMetricsTable() {
         mendan_get: 0, mendan_exec: 0, seiyaku: 0, cooling_off: 0,
         ...current,
       })
-      saveTimers.delete(key)
+      timers.delete(key)
     }, 600))
   }, [currentMember, currentWeekStart, queryClient, save])
 

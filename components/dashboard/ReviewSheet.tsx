@@ -96,6 +96,8 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
     mutationFn: upsertWeeklyReview,
     onSuccess: (data) => {
       queryClient.setQueryData(['weekly_review', currentMember?.id, weekStart], data)
+      // SummaryDashboard 月次集計の無着地/NG理由ランキングも最新化
+      queryClient.invalidateQueries({ queryKey: ['weekly_reviews_month', currentMember?.id] })
       syncEvents.emit('saved')
       setTimeout(() => syncEvents.emit('idle'), 2000)
     },

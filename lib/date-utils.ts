@@ -1,29 +1,39 @@
-// 日付ユーティリティ
+// 日付ユーティリティ（全てローカル(JST)時刻ベース・UTC問題なし）
 
-// 今日の日付をYYYY-MM-DD形式で返す（ローカル時刻ベース・JST対応）
-export function today(): string {
-  const d = new Date()
+// 内部: YYYY-MM-DD文字列をローカル(JST)のDateに変換（new Date(str) はUTC解釈になるので避ける）
+function parseDateLocal(dateStr: string): Date {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return new Date(y, m - 1, d)
+}
+
+// 内部: DateをローカルYYYY-MM-DD文字列にフォーマット（toISOString()はUTCになるので避ける）
+function formatLocal(d: Date): string {
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
 }
 
+// 今日の日付をYYYY-MM-DD形式で返す（ローカル時刻ベース・JST対応）
+export function today(): string {
+  return formatLocal(new Date())
+}
+
 // 指定日が属する週の月曜日を返す (YYYY-MM-DD)
 export function getWeekStart(dateStr: string): string {
-  const d = new Date(dateStr)
+  const d = parseDateLocal(dateStr)
   const day = d.getDay() // 0=日, 1=月 ... 6=土
   const diff = day === 0 ? -6 : 1 - day // 月曜日に調整
   d.setDate(d.getDate() + diff)
-  return d.toISOString().split('T')[0]
+  return formatLocal(d)
 }
 
 // 週の月〜日曜日を配列で返す
 export function getWeekDays(weekStart: string): string[] {
-  const days = []
-  const d = new Date(weekStart)
+  const days: string[] = []
+  const d = parseDateLocal(weekStart)
   for (let i = 0; i < 7; i++) {
-    days.push(new Date(d).toISOString().split('T')[0])
+    days.push(formatLocal(d))
     d.setDate(d.getDate() + 1)
   }
   return days
@@ -31,14 +41,14 @@ export function getWeekDays(weekStart: string): string[] {
 
 // YYYY-MM-DD → MM/DD(曜日)
 export function formatDateJa(dateStr: string): string {
-  const d = new Date(dateStr)
+  const d = parseDateLocal(dateStr)
   const days = ['日', '月', '火', '水', '木', '金', '土']
   return `${d.getMonth() + 1}/${d.getDate()}(${days[d.getDay()]})`
 }
 
 // YYYY-MM-DD → M月D日(曜日)
 export function formatDateJaLong(dateStr: string): string {
-  const d = new Date(dateStr)
+  const d = parseDateLocal(dateStr)
   const days = ['日', '月', '火', '水', '木', '金', '土']
   return `${d.getMonth() + 1}月${d.getDate()}日(${days[d.getDay()]})`
 }
@@ -48,11 +58,19 @@ export function getYearMonth(dateStr: string): string {
   return dateStr.substring(0, 7)
 }
 
+// YYYY-MM → 月末日 YYYY-MM-DD
+export function endOfMonth(yearMonth: string): string {
+  const [year, month] = yearMonth.split('-').map(Number)
+  // new Date(year, month, 0) = 翌月の0日目 = 当月末日
+  const last = new Date(year, month, 0)
+  return formatLocal(last)
+}
+
 // 前週/次週の月曜日を返す
 export function addWeeks(weekStart: string, n: number): string {
-  const d = new Date(weekStart)
+  const d = parseDateLocal(weekStart)
   d.setDate(d.getDate() + n * 7)
-  return d.toISOString().split('T')[0]
+  return formatLocal(d)
 }
 
 // 週の表示ラベル (例: "5/5(月) - 5/11(日)")
@@ -66,10 +84,10 @@ export function getWeekLabel(weekStart: string): string {
 // 月の全日を配列で返す
 export function getMonthDays(yearMonth: string): string[] {
   const [year, month] = yearMonth.split('-').map(Number)
-  const days = []
+  const days: string[] = []
   const d = new Date(year, month - 1, 1)
   while (d.getMonth() === month - 1) {
-    days.push(d.toISOString().split('T')[0])
+    days.push(formatLocal(d))
     d.setDate(d.getDate() + 1)
   }
   return days
@@ -106,22 +124,25 @@ export function pct(a: number, b: number): number {
   return Math.round((a / b) * 100)
 }
 
-// 残り営業日計算（末日-3日 - 今日の日付）
+// 残り営業日計算（末日-3日 - 今日の日付）※当月の場合のみ意味あり
 export function remainingWorkdays(yearMonth: string): number {
   const [year, month] = yearMonth.split('-').map(Number)
-  const today = new Date()
+  const now = new Date()
+  const isCurrentMonth = now.getFullYear() === year && now.getMonth() + 1 === month
   const lastDay = new Date(year, month, 0).getDate()
-  const todayDate = today.getDate()
+  const todayDate = isCurrentMonth ? now.getDate() : lastDay
   return Math.max(0, lastDay - 3 - todayDate)
 }
 
 // 経過営業日計算
 export function passedWorkdays(yearMonth: string): number {
   const [year, month] = yearMonth.split('-').map(Number)
-  const today = new Date()
+  const now = new Date()
+  const isCurrentMonth = now.getFullYear() === year && now.getMonth() + 1 === month
+  const endDate = isCurrentMonth ? now : new Date(year, month, 0)
   const firstDay = new Date(year, month - 1, 1)
   let count = 0
-  for (let d = new Date(firstDay); d < today; d.setDate(d.getDate() + 1)) {
+  for (let d = new Date(firstDay); d < endDate; d.setDate(d.getDate() + 1)) {
     const dow = d.getDay()
     if (dow !== 0 && dow !== 6) count++
   }
@@ -176,7 +197,8 @@ export function requiredDailyFromNow(budget: number, achieved: number, yearMonth
   const isCurrentMonth = now.getFullYear() === year && now.getMonth() + 1 === month
   const todayDate = isCurrentMonth ? now.getDate() : new Date(year, month, 0).getDate()
   const days = usableDays(yearMonth)
-  const remaining = Math.max(0, days - todayDate)
+  // 残り日数: 当月でなければ0、当月なら days - todayDate を1以上に
+  const remaining = isCurrentMonth ? Math.max(1, days - todayDate) : 0
   if (!remaining || !budget) return 0
   const deficit = budget - achieved
   if (deficit <= 0) return 0

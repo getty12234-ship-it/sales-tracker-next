@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { endOfMonth } from './date-utils'
 import type { DailyMetrics, WeeklyReview, DailyReport, MonthlyVideo, InstagramMetrics, StCase } from './supabase'
 
 // ==================== Members ====================
@@ -121,7 +122,7 @@ export async function upsertDailyReport(report: Partial<DailyReport> & { member_
 export async function getMonthlyVideos(yearMonth: string) {
   // yearMonth = "2026-05"
   const startDate = `${yearMonth}-01`
-  const endDate = `${yearMonth}-31`
+  const endDate = endOfMonth(yearMonth)
   const { data, error } = await supabase
     .from('st_monthly_videos')
     .select('*')
@@ -175,7 +176,7 @@ export async function getInstagramMetrics(accountId: string, startDate: string, 
 
 export async function getInstagramMonthlyMetrics(accountId: string, yearMonth: string) {
   const startDate = `${yearMonth}-01`
-  const endDate = `${yearMonth}-31`
+  const endDate = endOfMonth(yearMonth)
   const { data, error } = await supabase
     .from('st_instagram_metrics')
     .select('*')

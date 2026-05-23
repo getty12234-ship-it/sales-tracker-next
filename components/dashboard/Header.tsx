@@ -54,7 +54,7 @@ export function Header() {
         setCurrentMember(teamMembers[0])
       }
     }
-  }, [currentTeam, members]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentTeam, members, isAdmin, currentMember, setCurrentMember])
 
   // 初回: 管理者はトップチームの最初のメンバーを自動選択
   useEffect(() => {

@@ -43,12 +43,30 @@ export function SettingsView() {
   const { mutate: saveSettings, isPending: isSaving } = useMutation({
     mutationFn: ({ goals, budgets }: { goals: Record<string, number>; budgets: Record<string, number> }) =>
       upsertSettings(currentMember!.id, goals, budgets),
+    onMutate: () => syncEvents.emit('saving'),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings', currentMember?.id] })
+      // チームサマリーで使う全員設定キャッシュも更新
+      queryClient.invalidateQueries({ queryKey: ['all_members_settings'] })
       setLocalBudgets({})
       syncEvents.emit('saved')
       setTimeout(() => syncEvents.emit('idle'), 2000)
     },
+    onError: () => syncEvents.emit('error'),
+  })
+
+  // 目標のみ保存（予算は変更しない）
+  const { mutate: saveGoalsOnly } = useMutation({
+    mutationFn: (newGoals: Record<string, number>) =>
+      upsertSettings(currentMember!.id, newGoals),
+    onMutate: () => syncEvents.emit('saving'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', currentMember?.id] })
+      queryClient.invalidateQueries({ queryKey: ['all_members_settings'] })
+      syncEvents.emit('saved')
+      setTimeout(() => syncEvents.emit('idle'), 2000)
+    },
+    onError: () => syncEvents.emit('error'),
   })
 
   const handleSave = () => {
@@ -82,9 +100,10 @@ export function SettingsView() {
 
   const { mutate: removeMember } = useMutation({
     mutationFn: deleteMember,
-    onSuccess: () => {
+    onSuccess: (_, deletedId) => {
       queryClient.invalidateQueries({ queryKey: ['members'] })
-      if (currentMember) setCurrentMember(null)
+      // 削除したメンバーが選択中だった場合のみnullに（他は維持）
+      if (currentMember?.id === deletedId) setCurrentMember(null)
     },
   })
 
@@ -250,9 +269,7 @@ export function SettingsView() {
                   value={goals[key] ?? DEFAULT_GOALS[key] ?? 0}
                   onChange={e => {
                     const next = { ...goals, [key]: parseInt(e.target.value) || 0 }
-                    upsertSettings(currentMember!.id, next).then(() =>
-                      queryClient.invalidateQueries({ queryKey: ['settings', currentMember?.id] })
-                    )
+                    saveGoalsOnly(next)
                   }}
                 />
                 <span className="text-xs text-slate-600">/ 月</span>
