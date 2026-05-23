@@ -51,7 +51,7 @@ export function Sidebar() {
       {/* ナビ */}
       <nav className="flex-1 py-2 space-y-1 px-2">
         {NAV_ITEMS.map(({ href, label, icon: Icon, exact }) => {
-          const isActive = exact ? pathname === href : pathname.startsWith(href)
+          const isActive = exact ? pathname === href : pathname?.startsWith(href)
           return (
             <Link
               key={href}
