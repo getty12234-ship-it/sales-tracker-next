@@ -211,27 +211,35 @@ export function GoalsView() {
                   </div>
                 )}
 
-                {/* 5カテゴリ（行形式：ラベル左固定 + アイテム横並び） */}
-                <div className="space-y-2">
+                {/* 5カテゴリ（縦積み：ラベル＋フル幅input） */}
+                <div className="space-y-3">
                   {LIFE_CATEGORIES.map(cat => {
                     const items = data.categories[cat.key]
                     return (
-                      <div key={cat.key} className="bg-slate-950/40 rounded-lg px-3 py-2.5 flex items-start gap-3">
-                        {/* カテゴリラベル（固定幅） */}
-                        <span className="text-sm font-semibold w-24 shrink-0 mt-1" style={{ color: cat.color }}>
-                          {cat.emoji} {cat.label}
-                        </span>
+                      <div key={cat.key} className="bg-slate-950/40 rounded-lg px-3 py-2.5 space-y-2">
+                        {/* カテゴリヘッダー */}
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-semibold" style={{ color: cat.color }}>
+                            {cat.emoji} {cat.label}
+                          </span>
+                          <Button
+                            variant="ghost" size="icon"
+                            className="h-6 w-6 text-slate-500 hover:text-slate-200"
+                            onClick={() => addItem(level.key, cat.key)}
+                          >
+                            <Plus className="w-4 h-4" />
+                          </Button>
+                        </div>
 
-                        {/* アイテムリスト（横並び・折り返し） */}
-                        <div className="flex flex-wrap gap-2 flex-1 min-w-0">
-                          {items.length === 0 ? (
-                            <span className="text-xs text-slate-600 mt-1">ー</span>
-                          ) : (
-                            items.map(item => (
-                              <div key={item.id} className="flex items-center gap-1.5 bg-slate-900/80 border border-slate-700/50 rounded-md px-2.5 py-1">
+                        {/* アイテムリスト（縦積み・フル幅） */}
+                        {items.length === 0 ? (
+                          <p className="text-xs text-slate-600 pl-1">＋ で追加</p>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {items.map(item => (
+                              <div key={item.id} className="flex items-center gap-2">
                                 <input
-                                  className="bg-transparent text-sm text-slate-200 placeholder:text-slate-500 outline-none min-w-[100px] w-auto"
-                                  style={{ width: Math.max(100, item.text.length * 9 + 20) + 'px' }}
+                                  className="flex-1 bg-slate-900/60 border border-slate-700/60 rounded-md px-3 py-1.5 text-sm text-slate-100 placeholder:text-slate-600 outline-none focus:border-slate-500 w-full"
                                   placeholder="入力..."
                                   value={item.text}
                                   onChange={e => updateItem(level.key, cat.key, item.id, e.target.value)}
@@ -240,21 +248,12 @@ export function GoalsView() {
                                   className="text-slate-600 hover:text-red-400 shrink-0"
                                   onClick={() => removeItem(level.key, cat.key, item.id)}
                                 >
-                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <Trash2 className="w-4 h-4" />
                                 </button>
                               </div>
-                            ))
-                          )}
-                        </div>
-
-                        {/* ＋ボタン */}
-                        <Button
-                          variant="ghost" size="icon"
-                          className="h-7 w-7 text-slate-500 hover:text-slate-200 shrink-0 mt-0.5"
-                          onClick={() => addItem(level.key, cat.key)}
-                        >
-                          <Plus className="w-4 h-4" />
-                        </Button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )
                   })}
