@@ -85,10 +85,13 @@ function serverToLocal(data: MemberGoalData): LocalGoals {
 function localToServer(local: LocalGoals): Partial<MemberGoalData> {
   const result: Partial<MemberGoalData> = {}
   for (const level of GOAL_LEVELS) {
-    const deadlineKey = `${level.key}_deadline` as keyof MemberGoalData
     const contentKey = `${level.key}_content` as keyof MemberGoalData
-    ;(result as any)[deadlineKey] = local[level.key].deadline
     ;(result as any)[contentKey] = JSON.stringify(local[level.key].categories)
+    // deadline は hasDeadline=true のゴールのみ送信（DBカラムが存在するもののみ）
+    if (level.hasDeadline) {
+      const deadlineKey = `${level.key}_deadline` as keyof MemberGoalData
+      ;(result as any)[deadlineKey] = local[level.key].deadline
+    }
   }
   return result
 }
