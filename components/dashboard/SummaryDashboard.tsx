@@ -13,7 +13,7 @@ import { Badge } from '@/components/ui/badge'
 import { TrendingUp, Target, Calendar, Download, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 
 const NEXT_ACTION_OPTIONS = [
   'T-UP',
@@ -303,22 +303,32 @@ export function SummaryDashboard() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-indigo-400" />
-              週別推移（成約・動員実施・アポ実施）
+              週別推移（全KPI）
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={weeklyData} barGap={2}>
+            <ResponsiveContainer width="100%" height={280}>
+              <LineChart data={weeklyData}>
                 <XAxis dataKey="week" tick={{ fontSize: 11, fill: '#94a3b8' }} />
                 <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} />
                 <Tooltip
                   contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
                   labelStyle={{ color: '#e2e8f0' }}
                 />
-                <Bar dataKey="seiyaku" name="成約" fill="#22c55e" radius={[3,3,0,0]} />
-                <Bar dataKey="doin_exec" name="動員実施" fill="#8b5cf6" radius={[3,3,0,0]} />
-                <Bar dataKey="apo_exec" name="アポ実施" fill="#06b6d4" radius={[3,3,0,0]} />
-              </BarChart>
+                <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
+                {KPI_SUMMARY.map(({ key, label, color }) => (
+                  <Line
+                    key={key}
+                    type="monotone"
+                    dataKey={key}
+                    name={label}
+                    stroke={color}
+                    strokeWidth={2}
+                    dot={{ r: 3, fill: color }}
+                    activeDot={{ r: 5 }}
+                  />
+                ))}
+              </LineChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
@@ -577,9 +587,9 @@ function KpiCard({
   )
 }
 
-// 週別チャートデータ構築
+// 週別チャートデータ構築（KPI_SUMMARY全項目）
 function buildWeeklyChartData(metrics: DailyMetrics[]) {
-  const weekMap = new Map<string, { seiyaku: number; doin_exec: number; apo_exec: number }>()
+  const weekMap = new Map<string, Record<string, number>>()
 
   metrics.forEach(m => {
     const d = new Date(m.date)
@@ -589,12 +599,11 @@ function buildWeeklyChartData(metrics: DailyMetrics[]) {
     monday.setDate(d.getDate() + diff)
     const key = `${monday.getMonth() + 1}/${monday.getDate()}週`
 
-    const existing = weekMap.get(key) || { seiyaku: 0, doin_exec: 0, apo_exec: 0 }
-    weekMap.set(key, {
-      seiyaku: existing.seiyaku + (m.seiyaku || 0),
-      doin_exec: existing.doin_exec + (m.doin_exec || 0),
-      apo_exec: existing.apo_exec + (m.apo_exec || 0),
+    const existing = weekMap.get(key) || {}
+    KPI_SUMMARY.forEach(({ key: field }) => {
+      existing[field] = (existing[field] || 0) + ((m[field as keyof DailyMetrics] as number) || 0)
     })
+    weekMap.set(key, existing)
   })
 
   return Array.from(weekMap.entries()).map(([week, vals]) => ({ week, ...vals }))
