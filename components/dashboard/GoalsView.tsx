@@ -211,49 +211,50 @@ export function GoalsView() {
                   </div>
                 )}
 
-                {/* 5カテゴリ */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+                {/* 5カテゴリ（行形式：ラベル左固定 + アイテム横並び） */}
+                <div className="space-y-1.5">
                   {LIFE_CATEGORIES.map(cat => {
                     const items = data.categories[cat.key]
                     return (
-                      <div key={cat.key} className="bg-slate-950/40 rounded-lg p-2 space-y-1.5">
-                        {/* カテゴリヘッダー */}
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-semibold" style={{ color: cat.color }}>
-                            {cat.emoji} {cat.label}
-                          </span>
-                          <Button
-                            variant="ghost" size="icon"
-                            className="h-5 w-5 text-slate-600 hover:text-slate-300"
-                            onClick={() => addItem(level.key, cat.key)}
-                          >
-                            <Plus className="w-3 h-3" />
-                          </Button>
+                      <div key={cat.key} className="bg-slate-950/40 rounded-lg px-3 py-2 flex items-start gap-2">
+                        {/* カテゴリラベル（固定幅） */}
+                        <span className="text-xs font-semibold w-20 shrink-0 mt-1" style={{ color: cat.color }}>
+                          {cat.emoji} {cat.label}
+                        </span>
+
+                        {/* アイテムリスト（横並び・折り返し） */}
+                        <div className="flex flex-wrap gap-1.5 flex-1 min-w-0">
+                          {items.length === 0 ? (
+                            <span className="text-[10px] text-slate-700 mt-1">ー</span>
+                          ) : (
+                            items.map(item => (
+                              <div key={item.id} className="flex items-center gap-1 bg-slate-900/80 border border-slate-700/50 rounded px-2 py-0.5">
+                                <input
+                                  className="bg-transparent text-xs text-slate-200 placeholder:text-slate-600 outline-none min-w-[80px] w-auto"
+                                  style={{ width: Math.max(80, item.text.length * 8 + 16) + 'px' }}
+                                  placeholder="入力..."
+                                  value={item.text}
+                                  onChange={e => updateItem(level.key, cat.key, item.id, e.target.value)}
+                                />
+                                <button
+                                  className="text-slate-700 hover:text-red-400 shrink-0"
+                                  onClick={() => removeItem(level.key, cat.key, item.id)}
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ))
+                          )}
                         </div>
 
-                        {/* 項目リスト */}
-                        {items.length === 0 ? (
-                          <p className="text-[10px] text-slate-700 text-center py-1">
-                            ＋で追加
-                          </p>
-                        ) : (
-                          items.map(item => (
-                            <div key={item.id} className="flex items-start gap-1">
-                              <Input
-                                className="bg-slate-900/80 border-slate-700/50 text-[11px] h-6 text-slate-200 placeholder:text-slate-600 px-1.5 flex-1 min-w-0"
-                                placeholder="入力..."
-                                value={item.text}
-                                onChange={e => updateItem(level.key, cat.key, item.id, e.target.value)}
-                              />
-                              <button
-                                className="text-slate-700 hover:text-red-400 mt-0.5 shrink-0"
-                                onClick={() => removeItem(level.key, cat.key, item.id)}
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            </div>
-                          ))
-                        )}
+                        {/* ＋ボタン */}
+                        <Button
+                          variant="ghost" size="icon"
+                          className="h-6 w-6 text-slate-600 hover:text-slate-300 shrink-0 mt-0.5"
+                          onClick={() => addItem(level.key, cat.key)}
+                        >
+                          <Plus className="w-3 h-3" />
+                        </Button>
                       </div>
                     )
                   })}
