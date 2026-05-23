@@ -37,8 +37,8 @@ export function Header() {
   const { data } = useQuery({
     queryKey: ['members'],
     queryFn: getMembers,
-    // 管理者のみメンバー一覧を取得（一般ユーザーはproviders.tsxで自分のメンバーをセット済み）
-    enabled: isAdmin,
+    // 全ユーザーが取得（RLSにより自動的にアクセス可能な範囲(同じチーム+管理者は全員)のみ返る）
+    enabled: !!currentMember || isAdmin,
   })
 
   useEffect(() => {
