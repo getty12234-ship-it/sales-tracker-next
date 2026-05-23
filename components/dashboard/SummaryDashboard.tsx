@@ -505,7 +505,7 @@ function KpiCard({
   const budgetRate = hasBudget ? Math.round((value / budget) * 100) : 0
   // ペース判定（今日の累積目標に対して進んでいるか）
   const isOnPace = cumulativeTarget > 0 ? value >= cumulativeTarget : true
-  const paceGap = cumulativeTarget > 0 ? value - cumulativeTarget : 0
+  const paceGap = cumulativeTarget > 0 ? Math.round(value - cumulativeTarget) : 0
   // ペースバー（今日の累積目標 / 月間目標ベース）
   const pacePct = paceBase > 0 ? Math.min(100, Math.round((cumulativeTarget / paceBase) * 100)) : 0
 

@@ -193,7 +193,7 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
                 const cumTarget = paceBase > 0 ? cumulativeBudgetTarget(paceBase, ym) : 0
                 const reqDaily = paceBase > 0 ? requiredDailyFromNow(paceBase, val, ym) : 0
                 const isOnTrack = cumTarget > 0 ? val >= cumTarget : true
-                const paceGap = cumTarget > 0 ? val - cumTarget : 0
+                const paceGap = cumTarget > 0 ? Math.round(val - cumTarget) : 0
                 return (
                   <div key={key} className={`rounded-lg p-2 ${important ? 'bg-slate-800 ring-1 ring-indigo-500/20' : 'bg-slate-800/50'}`}>
                     <div className="text-[10px] text-slate-500 truncate mb-0.5">{label}</div>
