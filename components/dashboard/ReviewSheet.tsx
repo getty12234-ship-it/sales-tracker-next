@@ -188,9 +188,12 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
                 const goal = goalVals[key] || 0
                 const rate = pct(val, goal)
                 const progressColor = rate >= 100 ? '#22c55e' : rate >= 70 ? '#eab308' : '#ef4444'
-                const cumTarget = budget > 0 ? cumulativeBudgetTarget(budget, ym) : 0
-                const reqDaily = budget > 0 ? requiredDailyFromNow(budget, val, ym) : 0
-                const isOnTrack = budget > 0 ? val >= cumTarget : true
+                // ペース（予算あり→予算ベース、なし→目標ベース）
+                const paceBase = budget > 0 ? budget : goal
+                const cumTarget = paceBase > 0 ? cumulativeBudgetTarget(paceBase, ym) : 0
+                const reqDaily = paceBase > 0 ? requiredDailyFromNow(paceBase, val, ym) : 0
+                const isOnTrack = cumTarget > 0 ? val >= cumTarget : true
+                const paceGap = cumTarget > 0 ? val - cumTarget : 0
                 return (
                   <div key={key} className={`rounded-lg p-2 ${important ? 'bg-slate-800 ring-1 ring-indigo-500/20' : 'bg-slate-800/50'}`}>
                     <div className="text-[10px] text-slate-500 truncate mb-0.5">{label}</div>
@@ -208,12 +211,18 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
                     </div>
                     <div className="flex justify-between mt-0.5">
                       <span className="text-[10px]" style={{ color: progressColor }}>{rate}%</span>
-                      {budget > 0 && reqDaily > 0 && val < budget ? (
+                      {val >= paceBase && paceBase > 0 ? (
+                        <span className="text-[9px] text-green-400">✓達成</span>
+                      ) : reqDaily > 0 ? (
                         <span className={`text-[9px] ${isOnTrack ? 'text-slate-500' : 'text-red-400'}`}>{reqDaily}/日</span>
-                      ) : budget > 0 && val >= budget ? (
-                        <span className="text-[9px] text-green-400">✓</span>
                       ) : null}
                     </div>
+                    {/* ペース表示（今日目標） */}
+                    {cumTarget > 0 && (
+                      <div className={`text-[9px] mt-0.5 font-medium ${isOnTrack ? 'text-cyan-500' : 'text-red-400'}`}>
+                        今日目標{cumTarget} {isOnTrack ? `+${paceGap}` : `${paceGap}`}
+                      </div>
+                    )}
                   </div>
                 )
               })}

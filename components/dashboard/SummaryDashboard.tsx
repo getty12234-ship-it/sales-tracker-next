@@ -181,9 +181,10 @@ export function SummaryDashboard() {
           const rate = pct(val, goal)
           const daily = passed > 0 ? (val / passed).toFixed(1) : '0'
           const needPerDay = remaining > 0 ? Math.ceil(Math.max(0, goal - val) / remaining) : 0
-          // 予算ペース
-          const cumTarget = budget > 0 ? cumulativeBudgetTarget(budget, ym) : 0
-          const reqDaily = budget > 0 ? requiredDailyFromNow(budget, val, ym) : 0
+          // ペース（予算あり→予算ベース、なし→目標ベース）
+          const paceBase = budget > 0 ? budget : goal
+          const cumTarget = paceBase > 0 ? cumulativeBudgetTarget(paceBase, ym) : 0
+          const reqDaily = paceBase > 0 ? requiredDailyFromNow(paceBase, val, ym) : 0
 
           return (
             <KpiCard
@@ -490,7 +491,13 @@ function KpiCard({
 }) {
   const progressColor = rate >= 100 ? 'bg-green-500' : rate >= 70 ? 'bg-yellow-400' : 'bg-red-500'
   const hasBudget = budget > 0
-  const budgetRate = budget > 0 ? Math.round((value / budget) * 100) : 0
+  const paceBase = hasBudget ? budget : goal
+  const budgetRate = hasBudget ? Math.round((value / budget) * 100) : 0
+  // ペース判定（今日の累積目標に対して進んでいるか）
+  const isOnPace = cumulativeTarget > 0 ? value >= cumulativeTarget : true
+  const paceGap = cumulativeTarget > 0 ? value - cumulativeTarget : 0
+  // ペースバー（今日の累積目標 / 月間目標ベース）
+  const pacePct = paceBase > 0 ? Math.min(100, Math.round((cumulativeTarget / paceBase) * 100)) : 0
 
   return (
     <Card className={`bg-slate-900 border-slate-800 ${important ? 'ring-1 ring-indigo-500/30' : ''}`}>
@@ -509,16 +516,31 @@ function KpiCard({
             )}
           </div>
         </div>
-        {/* プログレスバー（目標ベース） */}
+        {/* 達成率バー（目標ベース） */}
         <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mb-1">
           <div
             className={`h-full rounded-full transition-all ${progressColor}`}
             style={{ width: `${Math.min(100, rate)}%` }}
           />
         </div>
+        {/* ペースライン（今日時点の累積目標位置を示すマーカー） */}
+        {cumulativeTarget > 0 && paceBase > 0 && (
+          <div className="relative w-full h-1 bg-slate-800/60 rounded-full overflow-hidden mb-1">
+            {/* 実績バー */}
+            <div
+              className="h-full rounded-full transition-all bg-indigo-500/50"
+              style={{ width: `${Math.min(100, Math.round((value / paceBase) * 100))}%` }}
+            />
+            {/* 今日のペース目標マーカー */}
+            <div
+              className="absolute top-0 w-0.5 h-full bg-yellow-400"
+              style={{ left: `${pacePct}%` }}
+            />
+          </div>
+        )}
         {/* 予算バー */}
         {hasBudget && (
-          <div className="w-full h-1 bg-slate-800/60 rounded-full overflow-hidden mb-1.5">
+          <div className="w-full h-1 bg-slate-800/60 rounded-full overflow-hidden mb-1">
             <div
               className="h-full rounded-full bg-amber-500/60 transition-all"
               style={{ width: `${Math.min(100, budgetRate)}%` }}
@@ -534,17 +556,19 @@ function KpiCard({
               <span className="text-amber-400">{needPerDay}/日</span>
             ) : null}
           </div>
-          {/* 予算ペース表示 */}
-          {hasBudget && (
-            <div className="flex justify-between text-[10px]">
-              <span className="text-slate-600">累積目標 {cumulativeTarget}</span>
-              {requiredDailyBudget > 0 ? (
-                <span className={requiredDailyBudget > budget / 10 ? 'text-red-400 font-bold' : 'text-slate-400'}>
-                  今から{requiredDailyBudget}/日
-                </span>
-              ) : value >= budget ? (
-                <span className="text-green-400">✓完了</span>
-              ) : null}
+          {/* ペース表示（常時・予算あり/なし問わず） */}
+          {cumulativeTarget > 0 && (
+            <div className="flex justify-between items-center text-[10px] mt-0.5 pt-0.5 border-t border-slate-800">
+              <span className="text-slate-500">
+                今日目標<span className={`ml-1 font-bold ${isOnPace ? 'text-cyan-400' : 'text-yellow-400'}`}>{cumulativeTarget}</span>
+              </span>
+              {value >= paceBase ? (
+                <span className="text-green-400 font-bold">✓ 達成</span>
+              ) : isOnPace ? (
+                <span className="text-cyan-400">+{paceGap} 順調</span>
+              ) : (
+                <span className="text-red-400 font-bold">{paceGap} 遅れ</span>
+              )}
             </div>
           )}
         </div>
