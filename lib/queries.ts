@@ -11,7 +11,7 @@ export async function getMembers() {
   return data || []
 }
 
-export async function createMember(name: string, color?: string, team?: 'top' | 'second') {
+export async function createMember(name: string, color?: string, team?: 'top' | 'second' | 'third') {
   const { data, error } = await supabase
     .from('st_members')
     .insert({ name, color: color || '#6366f1', team: team || 'top' })

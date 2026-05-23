@@ -10,7 +10,7 @@ export type Member = {
   id: string
   name: string
   color?: string
-  team?: 'top' | 'second'
+  team?: 'top' | 'second' | 'third'
   user_id?: string | null
   is_admin?: boolean
   created_at: string

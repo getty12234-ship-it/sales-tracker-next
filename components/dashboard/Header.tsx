@@ -113,6 +113,16 @@ export function Header() {
             >
               2ND
             </button>
+            <button
+              onClick={() => setCurrentTeam('third')}
+              className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${
+                currentTeam === 'third'
+                  ? 'bg-emerald-600 text-white'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              3RD
+            </button>
           </div>
         )}
 
