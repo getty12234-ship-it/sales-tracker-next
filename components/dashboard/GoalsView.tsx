@@ -192,8 +192,8 @@ export function GoalsView() {
             )}
             <Card className={`${level.bg} border ${level.border}`}>
               <CardHeader className="pb-2 pt-3 px-4">
-                <CardTitle className="text-sm flex items-center gap-2" style={{ color: level.color }}>
-                  <span className="text-base">{level.emoji}</span>
+                <CardTitle className="text-base flex items-center gap-2" style={{ color: level.color }}>
+                  <span className="text-lg">{level.emoji}</span>
                   {level.label}
                 </CardTitle>
               </CardHeader>
@@ -201,9 +201,9 @@ export function GoalsView() {
                 {/* 期限 */}
                 {level.hasDeadline && (
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-500 w-8 shrink-0">期限</span>
+                    <span className="text-sm text-slate-400 w-10 shrink-0">期限</span>
                     <Input
-                      className="bg-slate-950/60 border-slate-700 text-xs h-7 text-slate-200 placeholder:text-slate-600"
+                      className="bg-slate-950/60 border-slate-700 text-sm h-9 text-slate-200 placeholder:text-slate-500"
                       placeholder="例：R9年6月 / 30歳まで"
                       value={data.deadline}
                       onChange={e => updateDeadline(level.key, e.target.value)}
@@ -212,35 +212,35 @@ export function GoalsView() {
                 )}
 
                 {/* 5カテゴリ（行形式：ラベル左固定 + アイテム横並び） */}
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   {LIFE_CATEGORIES.map(cat => {
                     const items = data.categories[cat.key]
                     return (
-                      <div key={cat.key} className="bg-slate-950/40 rounded-lg px-3 py-2 flex items-start gap-2">
+                      <div key={cat.key} className="bg-slate-950/40 rounded-lg px-3 py-2.5 flex items-start gap-3">
                         {/* カテゴリラベル（固定幅） */}
-                        <span className="text-xs font-semibold w-20 shrink-0 mt-1" style={{ color: cat.color }}>
+                        <span className="text-sm font-semibold w-24 shrink-0 mt-1" style={{ color: cat.color }}>
                           {cat.emoji} {cat.label}
                         </span>
 
                         {/* アイテムリスト（横並び・折り返し） */}
-                        <div className="flex flex-wrap gap-1.5 flex-1 min-w-0">
+                        <div className="flex flex-wrap gap-2 flex-1 min-w-0">
                           {items.length === 0 ? (
-                            <span className="text-[10px] text-slate-700 mt-1">ー</span>
+                            <span className="text-xs text-slate-600 mt-1">ー</span>
                           ) : (
                             items.map(item => (
-                              <div key={item.id} className="flex items-center gap-1 bg-slate-900/80 border border-slate-700/50 rounded px-2 py-0.5">
+                              <div key={item.id} className="flex items-center gap-1.5 bg-slate-900/80 border border-slate-700/50 rounded-md px-2.5 py-1">
                                 <input
-                                  className="bg-transparent text-xs text-slate-200 placeholder:text-slate-600 outline-none min-w-[80px] w-auto"
-                                  style={{ width: Math.max(80, item.text.length * 8 + 16) + 'px' }}
+                                  className="bg-transparent text-sm text-slate-200 placeholder:text-slate-500 outline-none min-w-[100px] w-auto"
+                                  style={{ width: Math.max(100, item.text.length * 9 + 20) + 'px' }}
                                   placeholder="入力..."
                                   value={item.text}
                                   onChange={e => updateItem(level.key, cat.key, item.id, e.target.value)}
                                 />
                                 <button
-                                  className="text-slate-700 hover:text-red-400 shrink-0"
+                                  className="text-slate-600 hover:text-red-400 shrink-0"
                                   onClick={() => removeItem(level.key, cat.key, item.id)}
                                 >
-                                  <Trash2 className="w-3 h-3" />
+                                  <Trash2 className="w-3.5 h-3.5" />
                                 </button>
                               </div>
                             ))
@@ -250,10 +250,10 @@ export function GoalsView() {
                         {/* ＋ボタン */}
                         <Button
                           variant="ghost" size="icon"
-                          className="h-6 w-6 text-slate-600 hover:text-slate-300 shrink-0 mt-0.5"
+                          className="h-7 w-7 text-slate-500 hover:text-slate-200 shrink-0 mt-0.5"
                           onClick={() => addItem(level.key, cat.key)}
                         >
-                          <Plus className="w-3 h-3" />
+                          <Plus className="w-4 h-4" />
                         </Button>
                       </div>
                     )
