@@ -56,12 +56,12 @@ export function Header() {
     }
   }, [currentTeam, members, isAdmin, currentMember, setCurrentMember])
 
-  // 初回: 管理者はトップチームの最初のメンバーを自動選択
+  // 初回: 管理者はコアチームの最初のメンバーを自動選択
   useEffect(() => {
     if (!isAdmin) return
     if (!currentMember && members.length > 0) {
-      const topMembers = members.filter(m => (m.team || 'top') === 'top')
-      setCurrentMember(topMembers[0] || members[0])
+      const coreMembers = members.filter(m => (m.team || 'top') === 'core')
+      setCurrentMember(coreMembers[0] || members[0])
     }
   }, [members, currentMember, isAdmin, setCurrentMember])
 
@@ -93,6 +93,16 @@ export function Header() {
         {/* 管理者のみチームトグルを表示 */}
         {isAdmin && (
           <div className="flex bg-slate-800 rounded-lg p-0.5 text-xs">
+            <button
+              onClick={() => setCurrentTeam('core')}
+              className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${
+                currentTeam === 'core'
+                  ? 'bg-rose-600 text-white'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              コア
+            </button>
             <button
               onClick={() => setCurrentTeam('top')}
               className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${

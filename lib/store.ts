@@ -27,8 +27,8 @@ export type AppState = {
   setMembers: (members: Member[]) => void
 
   // 選択中のチーム
-  currentTeam: 'top' | 'second' | 'third'
-  setCurrentTeam: (t: 'top' | 'second' | 'third') => void
+  currentTeam: 'core' | 'top' | 'second' | 'third'
+  setCurrentTeam: (t: 'core' | 'top' | 'second' | 'third') => void
 
   // 認証情報
   isAdmin: boolean
@@ -48,7 +48,7 @@ export const AppContext = createContext<AppState>({
   setCurrentDate: () => {},
   members: [],
   setMembers: () => {},
-  currentTeam: 'top',
+  currentTeam: 'core',
   setCurrentTeam: () => {},
   isAdmin: false,
   setIsAdmin: () => {},

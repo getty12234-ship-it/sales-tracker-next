@@ -7,13 +7,14 @@ import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 
-type Team = 'top' | 'second' | 'third'
+type Team = 'core' | 'top' | 'second' | 'third'
 type Tab = 'login' | 'signup'
 
 const TEAM_OPTIONS: { value: Team; label: string; bg: string }[] = [
-  { value: 'top',    label: 'チームTOP', bg: 'bg-indigo-600' },
-  { value: 'second', label: 'チーム2nd', bg: 'bg-purple-600' },
-  { value: 'third',  label: 'チーム3rd', bg: 'bg-emerald-600' },
+  { value: 'core',   label: 'コアチーム', bg: 'bg-rose-600'    },
+  { value: 'top',    label: 'チームTOP',  bg: 'bg-indigo-600'  },
+  { value: 'second', label: 'チーム2nd',  bg: 'bg-purple-600'  },
+  { value: 'third',  label: 'チーム3rd',  bg: 'bg-emerald-600' },
 ]
 
 const COLORS = [
@@ -99,7 +100,7 @@ function SignupForm({ router }: { router: ReturnType<typeof useRouter> }) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [team, setTeam] = useState<Team>('top')
+  const [team, setTeam] = useState<Team>('core')
   const [color, setColor] = useState(COLORS[0])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)

@@ -22,7 +22,7 @@ export function Providers({ children }: { children: ReactNode }) {
   const [currentYM, setCurrentYM] = useState(currentYearMonth())
   const [currentDate, setCurrentDate] = useState(today())
   const [members, setMembers] = useState<Member[]>([])
-  const [currentTeam, setCurrentTeam] = useState<'top' | 'second' | 'third'>('top')
+  const [currentTeam, setCurrentTeam] = useState<'core' | 'top' | 'second' | 'third'>('core')
   const [isAdmin, setIsAdmin] = useState(false)
   const [authMemberId, setAuthMemberId] = useState<string | null>(null)
 
@@ -40,7 +40,7 @@ export function Providers({ children }: { children: ReactNode }) {
       if (!data.is_admin) {
         // 一般メンバー: 自分のメンバーを自動セット
         setCurrentMember(data)
-        setCurrentTeam((data.team as 'top' | 'second' | 'third') || 'top')
+        setCurrentTeam((data.team as 'core' | 'top' | 'second' | 'third') || 'top')
       }
       // 管理者は Header の既存ロジックでメンバー選択
     }
