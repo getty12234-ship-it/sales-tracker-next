@@ -491,6 +491,22 @@ export function SummaryDashboard() {
   )
 }
 
+// ホバーツールチップ付きバー
+function BarWithTooltip({ tooltip, children }: { tooltip: string; children: React.ReactNode }) {
+  return (
+    <div className="relative group/bar">
+      {children}
+      <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 z-50
+        opacity-0 group-hover/bar:opacity-100 transition-opacity duration-150
+        px-2 py-1 rounded bg-slate-700 border border-slate-600 text-[10px] text-slate-200 whitespace-nowrap shadow-lg">
+        {tooltip}
+        {/* 下向き三角 */}
+        <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-700" />
+      </div>
+    </div>
+  )
+}
+
 // KPIカードコンポーネント
 function KpiCard({
   label, value, goal, budget, rate, color, daily, needPerDay, important, cumulativeTarget, requiredDailyBudget
@@ -526,37 +542,47 @@ function KpiCard({
             )}
           </div>
         </div>
-        {/* 達成率バー（目標ベース） */}
-        <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mb-1">
-          <div
-            className={`h-full rounded-full transition-all ${progressColor}`}
-            style={{ width: `${Math.min(100, rate)}%` }}
-          />
-        </div>
-        {/* ペースライン（今日時点の累積目標位置を示すマーカー） */}
+
+        {/* ① 達成率バー（目標ベース） */}
+        <BarWithTooltip tooltip={`🎯 目標達成率: ${rate}%（実績 ${value} / 目標 ${goal}）`}>
+          <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mb-1 cursor-default">
+            <div
+              className={`h-full rounded-full transition-all ${progressColor}`}
+              style={{ width: `${Math.min(100, rate)}%` }}
+            />
+          </div>
+        </BarWithTooltip>
+
+        {/* ② ペースライン（今日時点の累積目標位置を示すマーカー） */}
         {cumulativeTarget > 0 && paceBase > 0 && (
-          <div className="relative w-full h-1 bg-slate-800/60 rounded-full overflow-hidden mb-1">
-            {/* 実績バー */}
-            <div
-              className="h-full rounded-full transition-all bg-indigo-500/50"
-              style={{ width: `${Math.min(100, Math.round((value / paceBase) * 100))}%` }}
-            />
-            {/* 今日のペース目標マーカー */}
-            <div
-              className="absolute top-0 w-0.5 h-full bg-yellow-400"
-              style={{ left: `${pacePct}%` }}
-            />
-          </div>
+          <BarWithTooltip tooltip={`📅 ペース: 実績 ${value} / 今日の累積目標 ${cumulativeTarget}（黄線）${isOnPace ? ` ＋${paceGap} 順調` : ` ${paceGap} 遅れ`}`}>
+            <div className="relative w-full h-1 bg-slate-800/60 rounded-full overflow-hidden mb-1 cursor-default">
+              {/* 実績バー */}
+              <div
+                className="h-full rounded-full transition-all bg-indigo-500/50"
+                style={{ width: `${Math.min(100, Math.round((value / paceBase) * 100))}%` }}
+              />
+              {/* 今日のペース目標マーカー */}
+              <div
+                className="absolute top-0 w-0.5 h-full bg-yellow-400"
+                style={{ left: `${pacePct}%` }}
+              />
+            </div>
+          </BarWithTooltip>
         )}
-        {/* 予算バー */}
+
+        {/* ③ 予算バー */}
         {hasBudget && (
-          <div className="w-full h-1 bg-slate-800/60 rounded-full overflow-hidden mb-1">
-            <div
-              className="h-full rounded-full bg-amber-500/60 transition-all"
-              style={{ width: `${Math.min(100, budgetRate)}%` }}
-            />
-          </div>
+          <BarWithTooltip tooltip={`💰 予算達成率: ${budgetRate}%（実績 ${value} / 予算 ${budget}）`}>
+            <div className="w-full h-1 bg-slate-800/60 rounded-full overflow-hidden mb-1 cursor-default">
+              <div
+                className="h-full rounded-full bg-amber-500/60 transition-all"
+                style={{ width: `${Math.min(100, budgetRate)}%` }}
+              />
+            </div>
+          </BarWithTooltip>
         )}
+
         <div className="space-y-0.5">
           <div className="flex justify-between text-xs">
             <span className="text-slate-500">{rate}%</span>
