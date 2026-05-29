@@ -227,9 +227,37 @@ export function InstagramView() {
       </Card>
 
       {!effectiveAccountId ? (
-        <div className="text-slate-500 text-sm p-8 text-center">
-          アカウントを追加してください
-        </div>
+        <Card className="bg-slate-900 border-slate-800 border-dashed">
+          <CardContent className="py-10">
+            <div className="max-w-md mx-auto text-center space-y-4">
+              <div className="w-14 h-14 rounded-full bg-pink-600/15 flex items-center justify-center mx-auto">
+                <Camera className="w-7 h-7 text-pink-400" />
+              </div>
+              <div>
+                <h3 className="text-slate-100 font-bold text-base">Instagramアカウントを追加して計測を開始</h3>
+                <p className="text-slate-400 text-xs mt-1 leading-relaxed">
+                  アカウントを追加すると、集客 → DM → アポ → 成約までのファネル、週別推移チャート、日次入力テーブルがすべて使えます。
+                </p>
+              </div>
+              <Button className="bg-pink-600 hover:bg-pink-700" onClick={() => setDialogOpen(true)}>
+                <Plus className="w-4 h-4 mr-1" />アカウントを追加
+              </Button>
+            </div>
+            {/* ファネルプレビュー（イメージ） */}
+            <div className="mt-8 max-w-lg mx-auto space-y-1.5 opacity-50 select-none pointer-events-none">
+              <div className="text-[10px] text-slate-500 text-center mb-2 tracking-wider">― 計測されるファネル ―</div>
+              {IG_FUNNEL.map(({ key, label, color }, i) => (
+                <div key={key} className="flex items-center gap-2">
+                  <span className="w-16 text-xs shrink-0" style={{ color }}>{label}</span>
+                  <div className="flex-1 h-4 bg-slate-800/60 rounded overflow-hidden">
+                    <div className="h-full rounded" style={{ width: `${100 - i * 14}%`, background: `${color}55` }} />
+                  </div>
+                  <span className="w-12 text-right text-[10px] text-slate-600 shrink-0">{IG_FUNNEL[i].rateLabel}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       ) : (
         <>
           {/* ヘッドライン：集客 + 全体成約率 */}
