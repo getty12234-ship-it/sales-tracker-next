@@ -555,7 +555,7 @@ function KpiCard({
 
         {/* ② ペースライン（今日時点の累積目標位置を示すマーカー） */}
         {cumulativeTarget > 0 && paceBase > 0 && (
-          <BarWithTooltip tooltip={`📅 ペース: 実績 ${value} / 今日の累積目標 ${cumulativeTarget}（黄線）${isOnPace ? ` ＋${paceGap} 順調` : ` ${paceGap} 遅れ`}`}>
+          <BarWithTooltip tooltip={`📅 ペース: 実績 ${value} / 今日の累積目標 ${cumulativeTarget}（黄線）${isOnPace ? ` ▲${paceGap} 先行` : ` ▼${Math.abs(paceGap)} 遅れ`}`}>
             <div className="relative w-full h-1 bg-slate-800/60 rounded-full overflow-hidden mb-1 cursor-default">
               {/* 実績バー */}
               <div
@@ -589,21 +589,21 @@ function KpiCard({
             {hasBudget ? (
               <span className="text-amber-500 text-[10px]">予算{budgetRate}%</span>
             ) : needPerDay > 0 ? (
-              <span className="text-amber-400">{needPerDay}/日</span>
+              <span className="text-amber-400">要{needPerDay}/日</span>
             ) : null}
           </div>
           {/* ペース表示（常時・予算あり/なし問わず） */}
           {cumulativeTarget > 0 && (
             <div className="flex justify-between items-center text-[10px] mt-0.5 pt-0.5 border-t border-slate-800">
               <span className="text-slate-500">
-                今日目標<span className={`ml-1 font-bold ${isOnPace ? 'text-cyan-400' : 'text-yellow-400'}`}>{cumulativeTarget}</span>
+                今日累積目標: <span className={`font-bold ${isOnPace ? 'text-cyan-400' : 'text-yellow-400'}`}>{cumulativeTarget}</span>
               </span>
               {value >= paceBase ? (
                 <span className="text-green-400 font-bold">✓ 達成</span>
               ) : isOnPace ? (
-                <span className="text-cyan-400">+{paceGap} 順調</span>
+                <span className="text-cyan-400">▲{paceGap} 先行</span>
               ) : (
-                <span className="text-red-400 font-bold">{paceGap} 遅れ</span>
+                <span className="text-red-400 font-bold">▼{Math.abs(paceGap)} 遅れ</span>
               )}
             </div>
           )}

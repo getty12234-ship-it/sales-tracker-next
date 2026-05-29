@@ -16,6 +16,21 @@ import { Plus, Trash2 } from 'lucide-react'
 import type { DailyMetrics } from '@/lib/supabase'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 
+// ホバーツールチップ付きバー（SummaryDashboard と共通ロジック）
+function BarWithTooltip({ tooltip, children }: { tooltip: string; children: React.ReactNode }) {
+  return (
+    <div className="relative group/bar">
+      {children}
+      <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 z-50
+        opacity-0 group-hover/bar:opacity-100 transition-opacity duration-150
+        px-2 py-1 rounded bg-slate-700 border border-slate-600 text-[10px] text-slate-200 whitespace-nowrap shadow-lg">
+        {tooltip}
+        <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-700" />
+      </div>
+    </div>
+  )
+}
+
 // --- 原因別アクションの型 ---
 type CauseAction = {
   action: string
@@ -196,6 +211,7 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
                 const reqDaily = paceBase > 0 ? requiredDailyFromNow(paceBase, val, ym) : 0
                 const isOnTrack = cumTarget > 0 ? val >= cumTarget : true
                 const paceGap = cumTarget > 0 ? Math.round(val - cumTarget) : 0
+                const budgetRate = budget > 0 ? Math.round((val / budget) * 100) : 0
                 return (
                   <div key={key} className={`rounded-lg p-2 ${important ? 'bg-slate-800 ring-1 ring-indigo-500/20' : 'bg-slate-800/50'}`}>
                     <div className="text-[10px] text-slate-500 truncate mb-0.5">{label}</div>
@@ -208,21 +224,50 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
                     ) : (
                       <div className="text-[10px] text-slate-600">目標 {goal}</div>
                     )}
-                    <div className="w-full h-1 bg-slate-700 rounded-full mt-1.5">
-                      <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, rate)}%`, background: progressColor }} />
-                    </div>
+                    {/* ① 目標達成率バー */}
+                    <BarWithTooltip tooltip={`🎯 目標達成率: ${rate}%（実績 ${val} / 目標 ${goal}）`}>
+                      <div className="w-full h-1 bg-slate-700 rounded-full mt-1.5 overflow-hidden cursor-default">
+                        <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, rate)}%`, background: progressColor }} />
+                      </div>
+                    </BarWithTooltip>
+                    {/* ② ペースバー（黄線 = 今日の累積目標位置） */}
+                    {cumTarget > 0 && paceBase > 0 && (
+                      <BarWithTooltip tooltip={`📅 ペース: 実績 ${val} / 今日の累積目標 ${cumTarget}（黄線）${isOnTrack ? ` ▲${paceGap} 先行` : ` ▼${Math.abs(paceGap)} 遅れ`}`}>
+                        <div className="relative w-full h-1 bg-slate-800/60 rounded-full overflow-hidden mt-0.5 cursor-default">
+                          <div className="h-full rounded-full bg-indigo-500/50" style={{ width: `${Math.min(100, Math.round((val / paceBase) * 100))}%` }} />
+                          <div className="absolute top-0 w-0.5 h-full bg-yellow-400" style={{ left: `${Math.min(100, Math.round((cumTarget / paceBase) * 100))}%` }} />
+                        </div>
+                      </BarWithTooltip>
+                    )}
+                    {/* ③ 予算バー */}
+                    {budget > 0 && (
+                      <BarWithTooltip tooltip={`💰 予算達成率: ${Math.round((val / budget) * 100)}%（実績 ${val} / 予算 ${budget}）`}>
+                        <div className="w-full h-1 bg-slate-800/60 rounded-full overflow-hidden mt-0.5 cursor-default">
+                          <div className="h-full rounded-full bg-amber-500/60 transition-all" style={{ width: `${Math.min(100, Math.round((val / budget) * 100))}%` }} />
+                        </div>
+                      </BarWithTooltip>
+                    )}
                     <div className="flex justify-between mt-0.5">
                       <span className="text-[10px]" style={{ color: progressColor }}>{rate}%</span>
-                      {val >= paceBase && paceBase > 0 ? (
-                        <span className="text-[9px] text-green-400">✓達成</span>
+                      {budget > 0 ? (
+                        <span className="text-[9px] text-amber-500">予算{budgetRate}%</span>
                       ) : reqDaily > 0 ? (
-                        <span className={`text-[9px] ${isOnTrack ? 'text-slate-500' : 'text-red-400'}`}>{reqDaily}/日</span>
+                        <span className="text-[9px] text-amber-400">要{reqDaily}/日</span>
                       ) : null}
                     </div>
-                    {/* ペース表示（今日目標） */}
+                    {/* ペース表示（今日の累積目標） */}
                     {cumTarget > 0 && (
-                      <div className={`text-[9px] mt-0.5 font-medium ${isOnTrack ? 'text-cyan-500' : 'text-red-400'}`}>
-                        今日目標{cumTarget} {isOnTrack ? `+${paceGap}` : `${paceGap}`}
+                      <div className="flex justify-between items-center text-[9px] mt-0.5 pt-0.5 border-t border-slate-700">
+                        <span className="text-slate-500">
+                          今日累積目標: <span className={`font-bold ${isOnTrack ? 'text-cyan-400' : 'text-yellow-400'}`}>{cumTarget}</span>
+                        </span>
+                        {val >= paceBase ? (
+                          <span className="text-green-400 font-bold">✓達成</span>
+                        ) : isOnTrack ? (
+                          <span className="text-cyan-400">▲{paceGap}先行</span>
+                        ) : (
+                          <span className="text-red-400 font-bold">▼{Math.abs(paceGap)}遅れ</span>
+                        )}
                       </div>
                     )}
                   </div>
