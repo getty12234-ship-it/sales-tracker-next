@@ -76,42 +76,60 @@ export const MEMBER_COLORS = [
   '#06b6d4', '#8b5cf6', '#14b8a6', '#f97316',
 ]
 
-// Instagramの項目（入力テーブル・月間サマリー・CSV用：全項目）
-export const IG_METRIC_FIELDS = [
-  { key: 'follows',     label: 'フォロー' },
-  { key: 'followers',   label: 'フォロワー増' },
-  { key: 'dm_send',     label: 'DM送信' },
-  { key: 'dm_reply',    label: 'DM返信' },
-  { key: 'ig_offer',    label: 'オファー' },
-  { key: 'ig_apo_get',  label: 'アポ獲得' },
-  { key: 'ig_apo_exec', label: 'アポ実施' },
-  { key: 'ig_doin_exec',label: '動員実施' },
-  { key: 'ig_seiyaku',  label: '成約' },
+// Instagram 全項目（入力テーブル・月間サマリー・CSV用。スプレッドシート順）
+// stock=true は累計値（合計せず最新値・純増で扱う）
+export const IG_METRIC_FIELDS: { key: string; label: string; stock?: boolean }[] = [
+  { key: 'follows',      label: 'フォロー',      stock: true },
+  { key: 'followers',    label: 'フォロワー',    stock: true },
+  { key: 'follow_trim',  label: 'フォロー削り' },
+  { key: 'follower_trim',label: 'フォロワー削り' },
+  { key: 'dm_send',      label: 'DM送信' },
+  { key: 'dm_reply',     label: 'DM返信' },
+  { key: 'ig_offer',     label: 'オファー' },
+  { key: 'ig_apo_get',   label: 'アポ' },
+  { key: 'ig_apo_exec',  label: 'アポ実施' },
+  { key: 'ig_doin_get',  label: '動員' },
+  { key: 'ig_doin_exec', label: '動員実施' },
+  { key: 'ig_seiyaku',   label: '成約' },
 ]
 
-// Instagram 集客（日次フロー：その日にやった行動量）
-export const IG_COLLECT_FIELDS = [
-  { key: 'follows',   label: 'フォロー',     color: '#ec4899' },
-  { key: 'followers', label: 'フォロワー増', color: '#f472b6' },
+// 集客ストック（累計：最新値＋純増で表示）
+export const IG_STOCK_FIELDS = [
+  { key: 'followers', label: 'フォロワー', color: '#f472b6' },
+  { key: 'follows',   label: 'フォロー',   color: '#ec4899' },
+]
+
+// 削り（日次フロー）
+export const IG_TRIM_FIELDS = [
+  { key: 'follow_trim',   label: 'フォロー削り',   color: '#fb7185' },
+  { key: 'follower_trim', label: 'フォロワー削り', color: '#fda4af' },
 ]
 
 // Instagram ファネル（DM→成約の商談フロー順。上＝起点 / 下＝ゴール）
-// 連続する段の比 = 各転換率（DM返信率・オファー率・アポ獲得率…）
+// 連続する段の比 = 各転換率（DM返信率・オファー率・アポ率…）
 export const IG_FUNNEL = [
   { key: 'dm_send',      label: 'DM送信',   rateLabel: '起点',       color: '#60a5fa' },
   { key: 'dm_reply',     label: 'DM返信',   rateLabel: 'DM返信率',   color: '#38bdf8' },
   { key: 'ig_offer',     label: 'オファー', rateLabel: 'オファー率', color: '#f59e0b' },
-  { key: 'ig_apo_get',   label: 'アポ獲得', rateLabel: 'アポ獲得率', color: '#a78bfa' },
-  { key: 'ig_apo_exec',  label: 'アポ実施', rateLabel: 'アポ実施率', color: '#06b6d4' },
+  { key: 'ig_apo_get',   label: 'アポ',     rateLabel: 'アポ率',     color: '#a78bfa' },
+  { key: 'ig_apo_exec',  label: 'アポ実施', rateLabel: '実施率',     color: '#06b6d4' },
+  { key: 'ig_doin_get',  label: '動員',     rateLabel: '動員率',     color: '#818cf8' },
   { key: 'ig_doin_exec', label: '動員実施', rateLabel: '動員実施率', color: '#8b5cf6' },
   { key: 'ig_seiyaku',   label: '成約',     rateLabel: '成約率',     color: '#22c55e' },
 ]
 
-// Instagram 週別推移チャートで描画する主要ライン
+// アクション量の週別推移チャートで描画する主要ライン（フロー）
 export const IG_TREND_LINES = [
   { key: 'dm_send',     label: 'DM送信',   color: '#60a5fa' },
   { key: 'dm_reply',    label: 'DM返信',   color: '#38bdf8' },
-  { key: 'ig_apo_get',  label: 'アポ獲得', color: '#a78bfa' },
+  { key: 'ig_apo_get',  label: 'アポ',     color: '#a78bfa' },
   { key: 'ig_apo_exec', label: 'アポ実施', color: '#06b6d4' },
   { key: 'ig_seiyaku',  label: '成約',     color: '#22c55e' },
 ]
+
+// Instagram メトリクスの空レコード（upsert既定値・新規行初期化）
+export const IG_EMPTY_METRICS = {
+  follows: 0, followers: 0, follow_trim: 0, follower_trim: 0,
+  dm_send: 0, dm_reply: 0, ig_offer: 0, ig_apo_get: 0, ig_apo_exec: 0,
+  ig_doin_get: 0, ig_doin_exec: 0, ig_seiyaku: 0, blocked: false,
+}

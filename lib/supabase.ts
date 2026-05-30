@@ -90,15 +90,19 @@ export type InstagramMetrics = {
   id?: string
   account_id: string
   date: string
-  follows: number
-  followers: number
-  dm_send: number
-  dm_reply: number
-  ig_offer: number
-  ig_apo_get: number
-  ig_apo_exec: number
-  ig_doin_exec: number
-  ig_seiyaku: number
+  follows: number          // フォロー（累計・ストック）
+  followers: number        // フォロワー（累計・ストック）
+  follow_trim: number      // フォロー削り（日次）
+  follower_trim: number    // フォロワー削り（日次）
+  dm_send: number          // DM送信（新規送信数）
+  dm_reply: number         // DM返信（新規返信数）
+  ig_offer: number         // オファー
+  ig_apo_get: number       // アポ
+  ig_apo_exec: number      // アポ実施（実施数）
+  ig_doin_get: number      // 動員獲得
+  ig_doin_exec: number     // 動員実施
+  ig_seiyaku: number       // 成約
+  blocked: boolean         // その日ブロックされたか
   created_at?: string
 }
 

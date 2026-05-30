@@ -4,25 +4,24 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAppState } from '@/lib/store'
 import { getInstagramAccounts, getInstagramMetrics, getInstagramMonthlyMetrics, upsertInstagramMetrics, createInstagramAccount } from '@/lib/queries'
 import { getWeekDays, formatDateJa, currentYearMonth, pct } from '@/lib/date-utils'
-import { IG_METRIC_FIELDS, IG_COLLECT_FIELDS, IG_FUNNEL, IG_TREND_LINES } from '@/lib/constants'
+import { IG_METRIC_FIELDS, IG_STOCK_FIELDS, IG_TRIM_FIELDS, IG_FUNNEL, IG_TREND_LINES, IG_EMPTY_METRICS } from '@/lib/constants'
 import { syncEvents } from './Header'
 import { useState, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Plus, Camera, TrendingUp, Download, Table2, Filter, UserPlus } from 'lucide-react'
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts'
+import { Plus, Camera, TrendingUp, Download, Table2, Filter, Users, Ban } from 'lucide-react'
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, Area, AreaChart } from 'recharts'
 import type { InstagramMetrics } from '@/lib/supabase'
 
-// 簡易ID生成
 function genId() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36)
 }
-
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const num = (v: unknown) => (typeof v === 'number' ? v : parseInt(String(v ?? '')) || 0)
 
-// ホバーで詳細を出すバー（SummaryDashboardと同じ挙動）
+// ホバーで詳細を出すバー
 function BarWithTooltip({ tooltip, children }: { tooltip: string; children: React.ReactNode }) {
   return (
     <div className="relative group/bar">
@@ -52,7 +51,6 @@ export function InstagramView() {
     enabled: !!currentMember,
   })
 
-  // アカウント選択 (初回自動選択)
   const effectiveAccountId = selectedAccountId || accounts[0]?.id || null
   const effectiveAccount = accounts.find(a => a.id === effectiveAccountId) || null
 
@@ -61,8 +59,7 @@ export function InstagramView() {
     queryFn: () => getInstagramMetrics(effectiveAccountId!, weekDays[0], weekDays[6]),
     enabled: !!effectiveAccountId,
   })
-
-  const metricsMap = Object.fromEntries(metrics.map(m => [m.date, m]))
+  const metricsMap = Object.fromEntries(metrics.map(m => [m.date, m])) as Record<string, InstagramMetrics>
 
   const { mutateAsync: save } = useMutation({
     mutationFn: upsertInstagramMetrics,
@@ -81,19 +78,12 @@ export function InstagramView() {
     onError: () => syncEvents.emit('error'),
   })
 
-  // 月間データ（全アカウント）
   const ym = currentYearMonth()
-
   const { data: monthlyMetricsList = [] } = useQuery({
     queryKey: ['ig_monthly_all', accounts.map(a => a.id).join(','), ym],
     queryFn: async () => {
-      const results = await Promise.all(
-        accounts.map(acc => getInstagramMonthlyMetrics(acc.id, ym))
-      )
-      return accounts.map((acc, i) => ({
-        account: acc,
-        metrics: results[i],
-      }))
+      const results = await Promise.all(accounts.map(acc => getInstagramMonthlyMetrics(acc.id, ym)))
+      return accounts.map((acc, i) => ({ account: acc, metrics: results[i] }))
     },
     enabled: accounts.length > 0,
   })
@@ -103,15 +93,13 @@ export function InstagramView() {
       createInstagramAccount(id, name, url, memberId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ig_accounts'] })
-      setDialogOpen(false)
-      setNewName('')
-      setNewUrl('')
+      setDialogOpen(false); setNewName(''); setNewUrl('')
     },
   })
 
+  // 数値フィールド入力（フロー/ストック共通）
   const handleChange = useCallback((date: string, field: string, value: number) => {
     if (!effectiveAccountId) return
-
     queryClient.setQueryData(
       ['ig_metrics', effectiveAccountId, currentWeekStart],
       (old: InstagramMetrics[] = []) => {
@@ -120,45 +108,65 @@ export function InstagramView() {
         return [...old, { account_id: effectiveAccountId, date, [field]: value } as InstagramMetrics]
       }
     )
-
     const key = `${effectiveAccountId}_${date}`
     if (saveTimers.has(key)) clearTimeout(saveTimers.get(key)!)
     syncEvents.emit('saving')
-
     saveTimers.set(key, setTimeout(async () => {
-      const current = (queryClient.getQueryData<InstagramMetrics[]>(
-        ['ig_metrics', effectiveAccountId, currentWeekStart]
-      ) || []).find(m => m.date === date)
-
-      await save({
-        account_id: effectiveAccountId,
-        date,
-        follows: 0, followers: 0, dm_send: 0, dm_reply: 0,
-        ig_offer: 0, ig_apo_get: 0, ig_apo_exec: 0, ig_doin_exec: 0, ig_seiyaku: 0,
-        ...current,
-      })
+      const current = (queryClient.getQueryData<InstagramMetrics[]>(['ig_metrics', effectiveAccountId, currentWeekStart]) || []).find(m => m.date === date)
+      await save({ account_id: effectiveAccountId, date, ...IG_EMPTY_METRICS, ...current })
       saveTimers.delete(key)
     }, 600))
+  }, [effectiveAccountId, currentWeekStart, queryClient, save])
+
+  // ブロックチェック（boolean・即保存）
+  const handleBlockToggle = useCallback(async (date: string, checked: boolean) => {
+    if (!effectiveAccountId) return
+    queryClient.setQueryData(
+      ['ig_metrics', effectiveAccountId, currentWeekStart],
+      (old: InstagramMetrics[] = []) => {
+        const existing = old.find(m => m.date === date)
+        if (existing) return old.map(m => m.date === date ? { ...m, blocked: checked } : m)
+        return [...old, { account_id: effectiveAccountId, date, blocked: checked } as InstagramMetrics]
+      }
+    )
+    const current = (queryClient.getQueryData<InstagramMetrics[]>(['ig_metrics', effectiveAccountId, currentWeekStart]) || []).find(m => m.date === date)
+    syncEvents.emit('saving')
+    await save({ account_id: effectiveAccountId, date, ...IG_EMPTY_METRICS, ...current, blocked: checked })
   }, [effectiveAccountId, currentWeekStart, queryClient, save])
 
   if (!currentMember) {
     return <div className="text-slate-500 text-sm p-8 text-center">メンバーを選択してください</div>
   }
 
-  // 今週の合計（全項目）
-  const weekTotals = Object.fromEntries(
-    IG_METRIC_FIELDS.map(({ key }) => [
-      key, weekDays.reduce((s, d) => s + ((metricsMap[d]?.[key as keyof InstagramMetrics] as number) || 0), 0)
-    ])
-  ) as Record<string, number>
+  // ===== 今週の集計 =====
+  const flowSum = (key: string) => weekDays.reduce((s, d) => s + num(metricsMap[d]?.[key as keyof InstagramMetrics]), 0)
+  const stockLatest = (key: string) => { for (let i = weekDays.length - 1; i >= 0; i--) { const v = num(metricsMap[weekDays[i]]?.[key as keyof InstagramMetrics]); if (v > 0) return v } return 0 }
+  const stockFirst = (key: string) => { for (let i = 0; i < weekDays.length; i++) { const v = num(metricsMap[weekDays[i]]?.[key as keyof InstagramMetrics]); if (v > 0) return v } return 0 }
+  const stockDelta = (key: string) => { const l = stockLatest(key), f = stockFirst(key); return (l > 0 && f > 0) ? l - f : 0 }
+  const blockedDays = weekDays.filter(d => metricsMap[d]?.blocked).length
 
-  // 選択アカウントの当月推移（全アカウント取得済みデータから流用）
+  const followerLatest = stockLatest('followers')
+  const followerDelta = stockDelta('followers')
+  const followLatest = stockLatest('follows')
+  const dmSendWeek = flowSum('dm_send')
+  const seiyakuWeek = flowSum('ig_seiyaku')
+  const funnelTop = flowSum('dm_send')
+  const overallRate = pct(seiyakuWeek, dmSendWeek)
+
+  // 選択アカウントの当月推移
   const selectedMonthMetrics = monthlyMetricsList.find(m => m.account.id === effectiveAccountId)?.metrics || []
   const trendData = buildWeeklyTrend(selectedMonthMetrics)
+  const followerSeries = [...selectedMonthMetrics]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map(m => ({ d: m.date.slice(5).replace('-', '/'), フォロワー: num(m.followers), フォロー: num(m.follows) }))
+    .filter(p => p.フォロワー > 0 || p.フォロー > 0)
 
-  // 全体成約率（DM送信 → 成約）
-  const overallRate = pct(weekTotals.ig_seiyaku, weekTotals.dm_send)
-  const funnelTop = weekTotals[IG_FUNNEL[0].key] || 0
+  // 入力テーブルのグループ定義
+  const tableGroups = [
+    { group: 'ストック（累計）', stock: true, fields: [{ key: 'follows', label: 'フォロー', color: '#ec4899' }, { key: 'followers', label: 'フォロワー', color: '#f472b6' }] },
+    { group: '削り', stock: false, fields: IG_TRIM_FIELDS },
+    { group: '商談フロー', stock: false, fields: IG_FUNNEL.map(({ key, label, color }) => ({ key, label, color })) },
+  ]
 
   return (
     <div className="space-y-4">
@@ -173,9 +181,7 @@ export function InstagramView() {
                 key={acc.id}
                 onClick={() => setSelectedAccountId(acc.id)}
                 className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                  effectiveAccountId === acc.id
-                    ? 'bg-pink-600 text-white'
-                    : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                  effectiveAccountId === acc.id ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                 }`}
               >
                 {acc.name}
@@ -186,41 +192,16 @@ export function InstagramView() {
                 <Plus className="w-3.5 h-3.5 mr-1" />追加
               </DialogTrigger>
               <DialogContent className="bg-slate-900 border-slate-700 max-w-sm">
-                <DialogHeader>
-                  <DialogTitle className="text-slate-200">アカウント追加</DialogTitle>
-                </DialogHeader>
+                <DialogHeader><DialogTitle className="text-slate-200">アカウント追加</DialogTitle></DialogHeader>
                 <div className="space-y-3">
-                  <Input
-                    className="bg-slate-950 border-slate-700 text-sm"
-                    placeholder="アカウント名"
-                    value={newName}
-                    onChange={e => setNewName(e.target.value)}
-                  />
-                  <Input
-                    className="bg-slate-950 border-slate-700 text-sm"
-                    placeholder="Instagram URL"
-                    value={newUrl}
-                    onChange={e => setNewUrl(e.target.value)}
-                  />
-                  <Button
-                    className="w-full bg-pink-600 hover:bg-pink-700"
-                    onClick={() => addAccount({ id: genId(), name: newName, url: newUrl, memberId: currentMember.id })}
-                    disabled={!newName}
-                  >
-                    追加
-                  </Button>
+                  <Input className="bg-slate-950 border-slate-700 text-sm" placeholder="アカウント名" value={newName} onChange={e => setNewName(e.target.value)} />
+                  <Input className="bg-slate-950 border-slate-700 text-sm" placeholder="Instagram URL" value={newUrl} onChange={e => setNewUrl(e.target.value)} />
+                  <Button className="w-full bg-pink-600 hover:bg-pink-700" onClick={() => addAccount({ id: genId(), name: newName, url: newUrl, memberId: currentMember.id })} disabled={!newName}>追加</Button>
                 </div>
               </DialogContent>
             </Dialog>
             {effectiveAccount?.url && (
-              <a
-                href={effectiveAccount.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="ml-auto text-[11px] text-slate-500 hover:text-pink-400 underline underline-offset-2"
-              >
-                プロフィールを開く ↗
-              </a>
+              <a href={effectiveAccount.url} target="_blank" rel="noopener noreferrer" className="ml-auto text-[11px] text-slate-500 hover:text-pink-400 underline underline-offset-2">プロフィールを開く ↗</a>
             )}
           </div>
         </CardContent>
@@ -236,23 +217,22 @@ export function InstagramView() {
               <div>
                 <h3 className="text-slate-100 font-bold text-base">Instagramアカウントを追加して計測を開始</h3>
                 <p className="text-slate-400 text-xs mt-1 leading-relaxed">
-                  アカウントを追加すると、集客 → DM → アポ → 成約までのファネル、週別推移チャート、日次入力テーブルがすべて使えます。
+                  アカウントを追加すると、フォロワー推移、集客 → DM → アポ → 成約までのファネル、アクション量グラフ、日次入力テーブルがすべて使えます。
                 </p>
               </div>
               <Button className="bg-pink-600 hover:bg-pink-700" onClick={() => setDialogOpen(true)}>
                 <Plus className="w-4 h-4 mr-1" />アカウントを追加
               </Button>
             </div>
-            {/* ファネルプレビュー（イメージ） */}
             <div className="mt-8 max-w-lg mx-auto space-y-1.5 opacity-50 select-none pointer-events-none">
               <div className="text-[10px] text-slate-500 text-center mb-2 tracking-wider">― 計測されるファネル ―</div>
-              {IG_FUNNEL.map(({ key, label, color }, i) => (
+              {IG_FUNNEL.map(({ key, label, color, rateLabel }, i) => (
                 <div key={key} className="flex items-center gap-2">
                   <span className="w-16 text-xs shrink-0" style={{ color }}>{label}</span>
                   <div className="flex-1 h-4 bg-slate-800/60 rounded overflow-hidden">
-                    <div className="h-full rounded" style={{ width: `${100 - i * 14}%`, background: `${color}55` }} />
+                    <div className="h-full rounded" style={{ width: `${100 - i * 11}%`, background: `${color}55` }} />
                   </div>
-                  <span className="w-12 text-right text-[10px] text-slate-600 shrink-0">{IG_FUNNEL[i].rateLabel}</span>
+                  <span className="w-12 text-right text-[10px] text-slate-600 shrink-0">{rateLabel}</span>
                 </div>
               ))}
             </div>
@@ -260,28 +240,45 @@ export function InstagramView() {
         </Card>
       ) : (
         <>
-          {/* ヘッドライン：集客 + 全体成約率 */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {IG_COLLECT_FIELDS.map(({ key, label, color }) => (
-              <Card key={key} className="bg-slate-900 border-slate-800">
-                <CardContent className="p-3">
-                  <div className="flex items-center gap-1 text-[11px] text-slate-500 mb-1">
-                    <UserPlus className="w-3 h-3" />{label}（週計）
-                  </div>
-                  <div className="text-2xl font-bold" style={{ color }}>{weekTotals[key] || 0}</div>
-                </CardContent>
-              </Card>
-            ))}
+          {/* ヘッドライン */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <Card className="bg-slate-900 border-slate-800 ring-1 ring-pink-500/30">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-1 text-[11px] text-slate-500 mb-1"><Users className="w-3 h-3" />フォロワー</div>
+                <div className="text-2xl font-bold text-pink-400">{followerLatest.toLocaleString()}</div>
+                <div className={`text-[11px] font-bold ${followerDelta > 0 ? 'text-green-400' : followerDelta < 0 ? 'text-red-400' : 'text-slate-600'}`}>
+                  {followerDelta > 0 ? `＋${followerDelta} 純増` : followerDelta < 0 ? `${followerDelta} 純減` : '増減なし'}
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="bg-slate-900 border-slate-800">
+              <CardContent className="p-3">
+                <div className="text-[11px] text-slate-500 mb-1">フォロー中</div>
+                <div className="text-2xl font-bold text-rose-300">{followLatest.toLocaleString()}</div>
+              </CardContent>
+            </Card>
+            <Card className="bg-slate-900 border-slate-800">
+              <CardContent className="p-3">
+                <div className="text-[11px] text-slate-500 mb-1">DM送信（週計）</div>
+                <div className="text-2xl font-bold text-blue-400">{dmSendWeek}</div>
+              </CardContent>
+            </Card>
             <Card className="bg-slate-900 border-slate-800">
               <CardContent className="p-3">
                 <div className="text-[11px] text-slate-500 mb-1">成約（週計）</div>
-                <div className="text-2xl font-bold text-green-400">{weekTotals.ig_seiyaku || 0}</div>
+                <div className="text-2xl font-bold text-green-400">{seiyakuWeek}</div>
               </CardContent>
             </Card>
-            <Card className="bg-slate-900 border-slate-800 ring-1 ring-pink-500/30">
+            <Card className="bg-slate-900 border-slate-800">
               <CardContent className="p-3">
-                <div className="text-[11px] text-slate-500 mb-1">全体成約率（DM→成約）</div>
+                <div className="text-[11px] text-slate-500 mb-1">全体成約率</div>
                 <div className="text-2xl font-bold text-pink-400">{overallRate}%</div>
+              </CardContent>
+            </Card>
+            <Card className={`bg-slate-900 border-slate-800 ${blockedDays > 0 ? 'ring-1 ring-red-500/40' : ''}`}>
+              <CardContent className="p-3">
+                <div className="flex items-center gap-1 text-[11px] text-slate-500 mb-1"><Ban className="w-3 h-3" />ブロック</div>
+                <div className={`text-2xl font-bold ${blockedDays > 0 ? 'text-red-400' : 'text-slate-300'}`}>{blockedDays}<span className="text-sm font-normal text-slate-500">日</span></div>
               </CardContent>
             </Card>
           </div>
@@ -290,42 +287,30 @@ export function InstagramView() {
           <Card className="bg-slate-900 border-slate-800">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
-                <Filter className="w-4 h-4 text-pink-400" />
-                ファネル（今週）
+                <Filter className="w-4 h-4 text-pink-400" />ファネル（今週）
                 <span className="text-[11px] font-normal text-slate-500">DM送信を100%とした各段の到達率</span>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-1.5">
               {IG_FUNNEL.map(({ key, label, rateLabel, color }, i) => {
-                const val = weekTotals[key] || 0
-                const prev = i === 0 ? 0 : (weekTotals[IG_FUNNEL[i - 1].key] || 0)
-                const stepRate = i === 0 ? null : pct(val, prev)            // 直前段からの転換率
-                const reachRate = funnelTop > 0 ? Math.round((val / funnelTop) * 100) : 0 // 起点からの到達率
+                const val = flowSum(key)
+                const prev = i === 0 ? 0 : flowSum(IG_FUNNEL[i - 1].key)
+                const stepRate = i === 0 ? null : pct(val, prev)
+                const reachRate = funnelTop > 0 ? Math.round((val / funnelTop) * 100) : 0
                 return (
                   <div key={key} className="flex items-center gap-2">
                     <span className="w-16 text-xs shrink-0" style={{ color }}>{label}</span>
                     <div className="flex-1 min-w-0">
-                      <BarWithTooltip
-                        tooltip={stepRate === null
-                          ? `起点 ${val} 件`
-                          : `${rateLabel} ${stepRate}%（${prev} → ${val}）／ 起点比 ${reachRate}%`}
-                      >
+                      <BarWithTooltip tooltip={stepRate === null ? `起点 ${val} 件` : `${rateLabel} ${stepRate}%（${prev} → ${val}）／ 起点比 ${reachRate}%`}>
                         <div className="w-full h-5 bg-slate-800/60 rounded overflow-hidden cursor-default">
-                          <div
-                            className="h-full rounded transition-all flex items-center"
-                            style={{ width: `${Math.max(reachRate, val > 0 ? 4 : 0)}%`, background: `${color}99` }}
-                          />
+                          <div className="h-full rounded transition-all" style={{ width: `${Math.max(reachRate, val > 0 ? 4 : 0)}%`, background: `${color}99` }} />
                         </div>
                       </BarWithTooltip>
                     </div>
                     <span className="w-10 text-right text-sm font-bold shrink-0" style={{ color }}>{val}</span>
                     <span className="w-24 text-right text-[11px] shrink-0">
-                      {stepRate === null ? (
-                        <span className="text-slate-600">起点</span>
-                      ) : (
-                        <span className={stepRate >= 50 ? 'text-green-400' : stepRate >= 25 ? 'text-amber-400' : 'text-red-400'}>
-                          {rateLabel} {stepRate}%
-                        </span>
+                      {stepRate === null ? <span className="text-slate-600">起点</span> : (
+                        <span className={stepRate >= 50 ? 'text-green-400' : stepRate >= 25 ? 'text-amber-400' : 'text-red-400'}>{rateLabel} {stepRate}%</span>
                       )}
                     </span>
                   </div>
@@ -334,111 +319,114 @@ export function InstagramView() {
             </CardContent>
           </Card>
 
-          {/* 週別推移チャート（当月） */}
-          {trendData.length > 0 && (
+          {/* グラフ2枚 */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            {/* フォロワー数の推移（当月・日次） */}
             <Card className="bg-slate-900 border-slate-800">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4 text-pink-400" />
-                  週別推移（{ym.replace('-', '年')}月）
+                  <Users className="w-4 h-4 text-pink-400" />フォロワー数の推移（{ym.replace('-', '年')}月）
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={260}>
-                  <LineChart data={trendData}>
-                    <XAxis dataKey="week" tick={{ fontSize: 11, fill: '#94a3b8' }} />
-                    <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} />
-                    <Tooltip
-                      contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
-                      labelStyle={{ color: '#e2e8f0' }}
-                    />
-                    <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
-                    {IG_TREND_LINES.map(({ key, label, color }) => (
-                      <Line
-                        key={key}
-                        type="monotone"
-                        dataKey={key}
-                        name={label}
-                        stroke={color}
-                        strokeWidth={2}
-                        dot={{ r: 3, fill: color }}
-                        activeDot={{ r: 5 }}
-                      />
-                    ))}
-                  </LineChart>
-                </ResponsiveContainer>
+                {followerSeries.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={240}>
+                    <AreaChart data={followerSeries}>
+                      <defs>
+                        <linearGradient id="igFollowerFill" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#f472b6" stopOpacity={0.5} />
+                          <stop offset="100%" stopColor="#f472b6" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <XAxis dataKey="d" tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                      <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} domain={['auto', 'auto']} />
+                      <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }} labelStyle={{ color: '#e2e8f0' }} />
+                      <Area type="monotone" dataKey="フォロワー" stroke="#f472b6" strokeWidth={2} fill="url(#igFollowerFill)" dot={{ r: 2, fill: '#f472b6' }} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-[240px] flex items-center justify-center text-slate-600 text-xs">フォロワー数を入力するとグラフが表示されます</div>
+                )}
               </CardContent>
             </Card>
-          )}
 
-          {/* メトリクス入力テーブル（グループ化） */}
+            {/* アクション量の週別推移 */}
+            <Card className="bg-slate-900 border-slate-800">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-pink-400" />アクション量の週別推移（{ym.replace('-', '年')}月）
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {trendData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={240}>
+                    <LineChart data={trendData}>
+                      <XAxis dataKey="week" tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                      <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                      <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }} labelStyle={{ color: '#e2e8f0' }} />
+                      <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
+                      {IG_TREND_LINES.map(({ key, label, color }) => (
+                        <Line key={key} type="monotone" dataKey={key} name={label} stroke={color} strokeWidth={2} dot={{ r: 3, fill: color }} activeDot={{ r: 5 }} />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-[240px] flex items-center justify-center text-slate-600 text-xs">データを入力するとグラフが表示されます</div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* メトリクス入力テーブル */}
           <div className="overflow-x-auto rounded-lg border border-slate-800">
-            <table className="w-full text-sm border-collapse" style={{ minWidth: '700px' }}>
+            <table className="w-full text-sm border-collapse" style={{ minWidth: '760px' }}>
               <thead>
                 <tr>
                   <th className="sticky left-0 bg-slate-950 text-left px-4 py-3 text-xs text-slate-500 uppercase tracking-wider w-28 z-10">項目</th>
                   {weekDays.map(date => (
-                    <th key={date} className="px-2 py-3 text-center text-xs text-slate-400 font-medium whitespace-nowrap">
-                      {formatDateJa(date)}
-                    </th>
+                    <th key={date} className="px-2 py-3 text-center text-xs text-slate-400 font-medium whitespace-nowrap">{formatDateJa(date)}</th>
                   ))}
-                  <th className="px-3 py-3 text-center text-xs text-pink-400 font-bold">合計</th>
+                  <th className="px-3 py-3 text-center text-xs text-pink-400 font-bold">合計/最新</th>
                 </tr>
               </thead>
               <tbody>
-                {[
-                  { group: '集客', fields: IG_COLLECT_FIELDS },
-                  { group: '商談フロー', fields: IG_FUNNEL },
-                ].map(({ group, fields }) => (
-                  <FieldGroup
-                    key={group}
-                    group={group}
-                    fields={fields}
-                    weekDays={weekDays}
-                    metricsMap={metricsMap}
-                    onChange={handleChange}
-                    colSpan={weekDays.length + 2}
-                  />
+                {tableGroups.map(({ group, fields, stock }) => (
+                  <FieldGroup key={group} group={group} fields={fields} stock={stock} weekDays={weekDays} metricsMap={metricsMap} onChange={handleChange} colSpan={weekDays.length + 2} stockLatest={stockLatest} />
                 ))}
+                {/* ブロックチェック行 */}
+                <tr>
+                  <td colSpan={weekDays.length + 2} className="sticky left-0 bg-slate-950/80 px-4 py-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">アカウント状態</td>
+                </tr>
+                <tr className="hover:bg-slate-900/50 transition-colors">
+                  <td className="sticky left-0 bg-[#0a0f1e] hover:bg-slate-900/50 px-4 py-1 text-xs text-slate-300 font-medium z-10 whitespace-nowrap">
+                    <Ban className="inline w-3 h-3 mr-1 text-red-400 align-middle" />ブロック
+                  </td>
+                  {weekDays.map(date => (
+                    <td key={date} className="px-1 py-1 text-center">
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4 accent-red-500 cursor-pointer"
+                        checked={!!metricsMap[date]?.blocked}
+                        onChange={e => handleBlockToggle(date, e.target.checked)}
+                      />
+                    </td>
+                  ))}
+                  <td className="px-3 py-1 text-center font-bold text-red-300 text-sm">{blockedDays || ''}{blockedDays ? '日' : ''}</td>
+                </tr>
               </tbody>
             </table>
           </div>
 
-          {/* 月間アカウント別サマリーテーブル */}
+          {/* 月間アカウント別サマリー */}
           {monthlyMetricsList.length > 0 && (
             <Card className="bg-slate-900 border-slate-800">
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
-                    <Table2 className="w-4 h-4 text-pink-400" />
-                    月間アカウント別サマリー（{ym.replace('-', '年')}月）
+                    <Table2 className="w-4 h-4 text-pink-400" />月間アカウント別サマリー（{ym.replace('-', '年')}月）
                   </CardTitle>
-                  <Button
-                    variant="ghost" size="sm"
-                    className="h-7 text-xs text-slate-400 hover:text-slate-200 border border-slate-700"
-                    onClick={() => {
-                      const headers = ['アカウント', ...IG_METRIC_FIELDS.map(f => f.label), 'DM返信率', 'アポ獲得率', '成約率']
-                      const rows = monthlyMetricsList.map(({ account, metrics }) => {
-                        const s: Record<string, number> = {}
-                        IG_METRIC_FIELDS.forEach(({ key }) => {
-                          s[key] = metrics.reduce((a, m) => a + ((m[key as keyof InstagramMetrics] as number) || 0), 0)
-                        })
-                        return [
-                          account.name,
-                          ...IG_METRIC_FIELDS.map(f => String(s[f.key])),
-                          `${pct(s.dm_reply, s.dm_send)}%`,
-                          `${pct(s.ig_apo_get, s.ig_offer)}%`,
-                          `${pct(s.ig_seiyaku, s.ig_doin_exec)}%`,
-                        ]
-                      })
-                      const csv = [headers, ...rows].map(r => r.join(',')).join('\n')
-                      const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
-                      const url = URL.createObjectURL(blob)
-                      const a = document.createElement('a')
-                      a.href = url; a.download = `ig_${ym}.csv`; a.click()
-                      URL.revokeObjectURL(url)
-                    }}
-                  >
+                  <Button variant="ghost" size="sm" className="h-7 text-xs text-slate-400 hover:text-slate-200 border border-slate-700"
+                    onClick={() => exportMonthlyCsv(monthlyMetricsList, ym)}>
                     <Download className="w-3.5 h-3.5 mr-1" />CSV
                   </Button>
                 </div>
@@ -448,38 +436,32 @@ export function InstagramView() {
                   <thead>
                     <tr className="border-b border-slate-800">
                       <th className="text-left px-4 py-2 text-slate-500 font-semibold whitespace-nowrap sticky left-0 bg-slate-900 z-10">アカウント</th>
-                      {IG_METRIC_FIELDS.map(({ key, label }) => (
-                        <th key={key} className="px-3 py-2 text-right text-slate-500 font-semibold whitespace-nowrap">{label}</th>
+                      {IG_METRIC_FIELDS.map(({ key, label, stock }) => (
+                        <th key={key} className="px-3 py-2 text-right text-slate-500 font-semibold whitespace-nowrap">{label}{stock ? '※' : ''}</th>
                       ))}
                       <th className="px-3 py-2 text-right text-pink-400 font-semibold whitespace-nowrap">DM返信率</th>
-                      <th className="px-3 py-2 text-right text-violet-400 font-semibold whitespace-nowrap">アポ獲得率</th>
+                      <th className="px-3 py-2 text-right text-violet-400 font-semibold whitespace-nowrap">アポ率</th>
                       <th className="px-3 py-2 text-right text-green-400 font-semibold whitespace-nowrap">成約率</th>
                     </tr>
                   </thead>
                   <tbody>
                     {monthlyMetricsList.map(({ account, metrics }) => {
-                      const sums: Record<string, number> = {}
-                      IG_METRIC_FIELDS.forEach(({ key }) => {
-                        sums[key] = metrics.reduce((s, m) => s + ((m[key as keyof InstagramMetrics] as number) || 0), 0)
-                      })
+                      const v = monthAgg(metrics)
                       return (
                         <tr key={account.id} className="border-b border-slate-800/40 hover:bg-slate-800/20">
-                          <td className="px-4 py-2 font-semibold text-slate-200 sticky left-0 bg-slate-900 z-10 whitespace-nowrap">
-                            {account.name}
-                          </td>
+                          <td className="px-4 py-2 font-semibold text-slate-200 sticky left-0 bg-slate-900 z-10 whitespace-nowrap">{account.name}</td>
                           {IG_METRIC_FIELDS.map(({ key }) => (
-                            <td key={key} className="px-3 py-2 text-right text-slate-300 font-mono">
-                              {sums[key] || 0}
-                            </td>
+                            <td key={key} className="px-3 py-2 text-right text-slate-300 font-mono">{v[key] || 0}</td>
                           ))}
-                          <td className="px-3 py-2 text-right font-bold text-pink-300">{pct(sums.dm_reply, sums.dm_send)}%</td>
-                          <td className="px-3 py-2 text-right font-bold text-violet-300">{pct(sums.ig_apo_get, sums.ig_offer)}%</td>
-                          <td className="px-3 py-2 text-right font-bold text-green-300">{pct(sums.ig_seiyaku, sums.ig_doin_exec)}%</td>
+                          <td className="px-3 py-2 text-right font-bold text-pink-300">{pct(v.dm_reply, v.dm_send)}%</td>
+                          <td className="px-3 py-2 text-right font-bold text-violet-300">{pct(v.ig_apo_get, v.ig_offer)}%</td>
+                          <td className="px-3 py-2 text-right font-bold text-green-300">{pct(v.ig_seiyaku, v.ig_doin_exec)}%</td>
                         </tr>
                       )
                     })}
                   </tbody>
                 </table>
+                <div className="px-4 py-2 text-[10px] text-slate-600">※ フォロー/フォロワーは累計値のため月末最新値を表示（合計ではありません）</div>
               </CardContent>
             </Card>
           )}
@@ -489,47 +471,73 @@ export function InstagramView() {
   )
 }
 
-// 入力テーブルのグループ（集客 / 商談フロー）
+// 月間集計（ストック=最新 / フロー=合計）
+function monthAgg(metrics: InstagramMetrics[]): Record<string, number> {
+  const sorted = [...metrics].sort((a, b) => a.date.localeCompare(b.date))
+  const out: Record<string, number> = {}
+  IG_METRIC_FIELDS.forEach(({ key, stock }) => {
+    if (stock) {
+      let latest = 0
+      for (let i = sorted.length - 1; i >= 0; i--) { const x = num(sorted[i][key as keyof InstagramMetrics]); if (x > 0) { latest = x; break } }
+      out[key] = latest
+    } else {
+      out[key] = metrics.reduce((s, m) => s + num(m[key as keyof InstagramMetrics]), 0)
+    }
+  })
+  return out
+}
+
+function exportMonthlyCsv(list: { account: { name: string }; metrics: InstagramMetrics[] }[], ym: string) {
+  const headers = ['アカウント', ...IG_METRIC_FIELDS.map(f => f.label + (f.stock ? '(累計)' : '')), 'DM返信率', 'アポ率', '成約率']
+  const rows = list.map(({ account, metrics }) => {
+    const v = monthAgg(metrics)
+    return [account.name, ...IG_METRIC_FIELDS.map(f => String(v[f.key])), `${pct(v.dm_reply, v.dm_send)}%`, `${pct(v.ig_apo_get, v.ig_offer)}%`, `${pct(v.ig_seiyaku, v.ig_doin_exec)}%`]
+  })
+  const csv = [headers, ...rows].map(r => r.join(',')).join('\n')
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = `ig_${ym}.csv`; a.click()
+  URL.revokeObjectURL(url)
+}
+
+// 入力テーブルのグループ
 function FieldGroup({
-  group, fields, weekDays, metricsMap, onChange, colSpan,
+  group, fields, stock, weekDays, metricsMap, onChange, colSpan, stockLatest,
 }: {
   group: string
   fields: { key: string; label: string; color: string }[]
+  stock?: boolean
   weekDays: string[]
   metricsMap: Record<string, InstagramMetrics>
   onChange: (date: string, field: string, value: number) => void
   colSpan: number
+  stockLatest: (key: string) => number
 }) {
   return (
     <>
       <tr>
-        <td colSpan={colSpan} className="sticky left-0 bg-slate-950/80 px-4 py-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-          {group}
-        </td>
+        <td colSpan={colSpan} className="sticky left-0 bg-slate-950/80 px-4 py-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">{group}</td>
       </tr>
       {fields.map(({ key, label, color }) => {
-        const total = weekDays.reduce((sum, date) =>
-          sum + ((metricsMap[date]?.[key as keyof InstagramMetrics] as number) || 0), 0)
+        const total = stock ? stockLatest(key) : weekDays.reduce((sum, date) => sum + num(metricsMap[date]?.[key as keyof InstagramMetrics]), 0)
         return (
           <tr key={key} className="hover:bg-slate-900/50 transition-colors">
             <td className="sticky left-0 bg-[#0a0f1e] hover:bg-slate-900/50 px-4 py-1 text-xs text-slate-300 font-medium z-10 whitespace-nowrap">
-              <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle" style={{ background: color }} />
-              {label}
+              <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle" style={{ background: color }} />{label}
             </td>
             {weekDays.map(date => (
               <td key={date} className="px-1 py-1">
                 <input
-                  type="number"
-                  min={0}
-                  className="metric-input"
-                  value={(metricsMap[date]?.[key as keyof InstagramMetrics] as number) || ''}
+                  type="number" min={0} className="metric-input"
+                  value={num(metricsMap[date]?.[key as keyof InstagramMetrics]) || ''}
                   placeholder="0"
                   onChange={e => onChange(date, key, parseInt(e.target.value) || 0)}
                   onFocus={e => e.target.select()}
                 />
               </td>
             ))}
-            <td className="px-3 py-1 text-center font-bold text-pink-300 text-sm">
+            <td className={`px-3 py-1 text-center font-bold text-sm ${stock ? 'text-pink-200' : 'text-pink-300'}`} title={stock ? '最新値' : '週合計'}>
               {total || ''}
             </td>
           </tr>
@@ -539,11 +547,10 @@ function FieldGroup({
   )
 }
 
-// 当月の日次データを週（月曜起点）でまとめてチャート用配列に変換
+// 当月の日次データを週（月曜起点）でまとめる
 function buildWeeklyTrend(metrics: InstagramMetrics[]) {
   const weekMap = new Map<string, Record<string, number>>()
   const order: string[] = []
-
   metrics.forEach(m => {
     const [y, mo, d] = m.date.split('-').map(Number)
     const date = new Date(y, mo - 1, d)
@@ -552,13 +559,11 @@ function buildWeeklyTrend(metrics: InstagramMetrics[]) {
     const monday = new Date(date)
     monday.setDate(date.getDate() + diff)
     const key = `${monday.getMonth() + 1}/${monday.getDate()}週`
-
     if (!weekMap.has(key)) { weekMap.set(key, {}); order.push(key) }
     const existing = weekMap.get(key)!
     IG_TREND_LINES.forEach(({ key: field }) => {
-      existing[field] = (existing[field] || 0) + ((m[field as keyof InstagramMetrics] as number) || 0)
+      existing[field] = (existing[field] || 0) + num(m[field as keyof InstagramMetrics])
     })
   })
-
   return order.map(week => ({ week, ...weekMap.get(week)! }))
 }
