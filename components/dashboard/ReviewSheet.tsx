@@ -280,7 +280,7 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
         {/* ② 今週の収支実績 */}
         <Card className="bg-slate-900 border-slate-800">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-slate-300">今週の収支実績</CardTitle>
+            <CardTitle className="text-sm text-slate-300">{readOnly ? '先週の' : '今週の'}収支実績</CardTitle>
           </CardHeader>
           <CardContent className="space-y-1 p-3 pt-0">
             {[
