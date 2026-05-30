@@ -226,6 +226,25 @@ export async function upsertSettings(memberId: string, goals: Record<string, num
   return data
 }
 
+// 今月の目標・予算メモ（自由記述）を月別に保存（st_settings.monthly_goals JSONB）
+export async function upsertMonthlyGoal(memberId: string, yearMonth: string, content: string) {
+  // 既存の monthly_goals を取得して該当月だけ差し替え（他月を消さない）
+  const { data: cur } = await supabase
+    .from('st_settings')
+    .select('monthly_goals')
+    .eq('member_id', memberId)
+    .maybeSingle()
+  const mg: Record<string, string> = { ...((cur?.monthly_goals as Record<string, string>) || {}) }
+  mg[yearMonth] = content
+  const { data, error } = await supabase
+    .from('st_settings')
+    .upsert({ member_id: memberId, monthly_goals: mg }, { onConflict: 'member_id' })
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
 // ==================== Member Goals ====================
 export interface MemberGoalData {
   longterm_deadline: string
