@@ -15,9 +15,6 @@ import { Plus, Camera, TrendingUp, Download, Table2, Filter, Users, Ban } from '
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, Area, AreaChart } from 'recharts'
 import type { InstagramMetrics } from '@/lib/supabase'
 
-function genId() {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36)
-}
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const num = (v: unknown) => (typeof v === 'number' ? v : parseInt(String(v ?? '')) || 0)
 
@@ -88,12 +85,17 @@ export function InstagramView() {
     enabled: accounts.length > 0,
   })
 
-  const { mutateAsync: addAccount } = useMutation({
-    mutationFn: ({ id, name, url, memberId }: { id: string; name: string; url: string; memberId: string }) =>
-      createInstagramAccount(id, name, url, memberId),
-    onSuccess: () => {
+  const { mutate: addAccount, isPending: addingAccount } = useMutation({
+    mutationFn: ({ name, url, memberId }: { name: string; url: string; memberId: string }) =>
+      createInstagramAccount(name, url, memberId),
+    onSuccess: (acc) => {
       queryClient.invalidateQueries({ queryKey: ['ig_accounts'] })
+      setSelectedAccountId(acc?.id ?? null)
       setDialogOpen(false); setNewName(''); setNewUrl('')
+    },
+    onError: (e: unknown) => {
+      const msg = e instanceof Error ? e.message : String(e)
+      alert(`アカウント追加に失敗しました。\n${msg}`)
     },
   })
 
@@ -196,7 +198,7 @@ export function InstagramView() {
                 <div className="space-y-3">
                   <Input className="bg-slate-950 border-slate-700 text-sm" placeholder="アカウント名" value={newName} onChange={e => setNewName(e.target.value)} />
                   <Input className="bg-slate-950 border-slate-700 text-sm" placeholder="Instagram URL" value={newUrl} onChange={e => setNewUrl(e.target.value)} />
-                  <Button className="w-full bg-pink-600 hover:bg-pink-700" onClick={() => addAccount({ id: genId(), name: newName, url: newUrl, memberId: currentMember.id })} disabled={!newName}>追加</Button>
+                  <Button className="w-full bg-pink-600 hover:bg-pink-700" onClick={() => addAccount({ name: newName.trim(), url: newUrl.trim(), memberId: currentMember.id })} disabled={!newName.trim() || addingAccount}>{addingAccount ? '追加中...' : '追加'}</Button>
                 </div>
               </DialogContent>
             </Dialog>

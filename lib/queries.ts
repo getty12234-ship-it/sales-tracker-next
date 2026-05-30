@@ -152,10 +152,11 @@ export async function getInstagramAccounts(memberId?: string) {
   return data || []
 }
 
-export async function createInstagramAccount(accountId: string, name: string, url: string, memberId: string) {
+export async function createInstagramAccount(name: string, url: string, memberId: string) {
+  // id は DB 側の gen_random_uuid() に任せる（クライアントで非UUID文字列を渡すと型エラーで失敗するため）
   const { data, error } = await supabase
     .from('st_instagram_accounts')
-    .insert({ id: accountId, name, url, member_id: memberId })
+    .insert({ name, url, member_id: memberId })
     .select()
     .single()
   if (error) throw error
