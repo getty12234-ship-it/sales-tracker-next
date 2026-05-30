@@ -16,13 +16,13 @@ export default function ReviewPage() {
         <WeekNav />
       </div>
 
-      {/* 先週（編集可能） */}
+      {/* 先週（読み取り専用：先週の施策と結果をふりかえる） */}
       <section>
         <h2 className="text-sm font-semibold text-slate-400 mb-3 flex items-center gap-2">
-          📋 先週の施策確認
-          <span className="text-xs font-normal text-slate-500">（{getWeekLabel(prevWeekStart)}）</span>
+          📋 先週の施策ふりかえり
+          <span className="text-xs font-normal text-slate-500">（{getWeekLabel(prevWeekStart)}・結果確認）</span>
         </h2>
-        <ReviewSheet weekStart={prevWeekStart} />
+        <ReviewSheet weekStart={prevWeekStart} readOnly={true} />
       </section>
 
       {/* 今週 */}
