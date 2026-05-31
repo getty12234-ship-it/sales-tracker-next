@@ -129,19 +129,26 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: Revi
     doin_muchaku_list: [] as { date: string; customer: string; closer: string; reason: string }[],
   })
 
+  // 週/メンバーが切り替わった時だけフォームを同期する。
+  // ※ 保存由来の review 更新ではフォームを上書きしない（編集中の取りこぼし防止）。
+  // ※ ガードなしで review に依存すると、データの無い週で前週の内容が残り、
+  //    編集時に別の週へ保存されて全週が同一化する不具合になる（それを防ぐ）。
+  const loadedKey = useRef<string | undefined>(undefined)
+  const loadKey = `${currentMember?.id}_${weekStart}`
   useEffect(() => {
-    if (review) {
-      setForm({
-        main_issue: review.main_issue || '',
-        main_cause: review.main_cause || '',
-        top_action: review.top_action || '',
-        cause_groups: migrateCauseActions((review.cause_actions as any) || []),
-        muchaku_reasons: (review.muchaku_reasons as any) || [],
-        ng_reasons: (review.ng_reasons as any) || [],
-        doin_muchaku_list: (review.doin_muchaku_list as any) || [],
-      })
-    }
-  }, [review])
+    if (review === undefined) return            // まだ読み込み中
+    if (loadedKey.current === loadKey) return    // この週は同期済み → 上書きしない
+    loadedKey.current = loadKey
+    setForm({
+      main_issue: review?.main_issue || '',
+      main_cause: review?.main_cause || '',
+      top_action: review?.top_action || '',
+      cause_groups: migrateCauseActions((review?.cause_actions as any) || []),
+      muchaku_reasons: (review?.muchaku_reasons as any) || [],
+      ng_reasons: (review?.ng_reasons as any) || [],
+      doin_muchaku_list: (review?.doin_muchaku_list as any) || [],
+    })
+  }, [review, loadKey])
 
   const debouncedSave = (updates: Partial<typeof form>) => {
     if (!currentMember) return
