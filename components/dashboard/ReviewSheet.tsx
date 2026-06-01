@@ -65,16 +65,18 @@ const CAUSE_LABELS = ['1番', '2番', '3番', '4番', '5番', '6番']
 interface ReviewSheetProps {
   weekStart?: string
   readOnly?: boolean
+  monthYm?: string // 月次KPI実績で表示する月（未指定なら週の月）。月またぎ時に「今いる月」を渡す
 }
 
-export function ReviewSheet({ weekStart: weekStartProp, readOnly = false }: ReviewSheetProps = {}) {
+export function ReviewSheet({ weekStart: weekStartProp, readOnly = false, monthYm }: ReviewSheetProps = {}) {
   const { currentMember, currentWeekStart } = useAppState()
   const queryClient = useQueryClient()
   const weekStart = weekStartProp ?? currentWeekStart
   const weekDays = getWeekDays(weekStart)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
-  const ym = getYearMonth(weekStart)
+  // 月次KPIは「今いる月」を基準にする（先週ふりかえりが先月にまたいでも今月を表示）
+  const ym = monthYm ?? getYearMonth(weekStart)
 
   const { data: metrics = [] } = useQuery({
     queryKey: ['daily_metrics', currentMember?.id, weekStart],
