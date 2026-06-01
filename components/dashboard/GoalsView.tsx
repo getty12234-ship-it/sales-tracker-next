@@ -197,9 +197,15 @@ export function GoalsView() {
     update(next)
   }
 
-  // 目標数値KPIの更新
+  // 目標数値KPIの更新（0または空は「目標なし」としてキー削除＝—表示）
   const updateBlockKpi = (blockId: string, kpiKey: string, value: number) => {
-    const next = blocks.map(b => b.id === blockId ? { ...b, kpis: { ...(b.kpis || {}), [kpiKey]: value } } : b)
+    const next = blocks.map(b => {
+      if (b.id !== blockId) return b
+      const kpis = { ...(b.kpis || {}) }
+      if (value > 0) kpis[kpiKey] = value
+      else delete kpis[kpiKey]
+      return { ...b, kpis }
+    })
     update(next)
   }
 
