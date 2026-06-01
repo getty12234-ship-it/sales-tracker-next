@@ -31,7 +31,17 @@ type GoalBlock = {
   hasDeadline: boolean
   deadline: string
   categories: GoalCategories
+  kpis?: Record<string, number> // 目標数値（アポ獲得/アポ実施/面談獲得/面談実施/成約）
 }
+
+// ゴールブロックに記入する目標数値KPI
+const GOAL_KPIS: { key: string; label: string; color: string }[] = [
+  { key: 'apo_get',     label: 'アポ獲得',  color: '#3b82f6' },
+  { key: 'apo_exec',    label: 'アポ実施',  color: '#06b6d4' },
+  { key: 'mendan_get',  label: '面談獲得',  color: '#6366f1' },
+  { key: 'mendan_exec', label: '面談実施',  color: '#818cf8' },
+  { key: 'seiyaku',     label: '成約',      color: '#22c55e' },
+]
 
 const LIFE_CATEGORIES: { key: keyof GoalCategories; label: string; emoji: string; color: string }[] = [
   { key: 'time',         label: '時間',     emoji: '⏰', color: '#60a5fa' },
@@ -187,6 +197,12 @@ export function GoalsView() {
     update(next)
   }
 
+  // 目標数値KPIの更新
+  const updateBlockKpi = (blockId: string, kpiKey: string, value: number) => {
+    const next = blocks.map(b => b.id === blockId ? { ...b, kpis: { ...(b.kpis || {}), [kpiKey]: value } } : b)
+    update(next)
+  }
+
   // ── カテゴリ内アイテム操作 ──
   const addItem = (blockId: string, catKey: keyof GoalCategories) => {
     const next = blocks.map(b => {
@@ -270,6 +286,7 @@ export function GoalsView() {
               onAddItem={catKey => addItem(block.id, catKey)}
               onUpdateItem={(catKey, itemId, text) => updateItem(block.id, catKey, itemId, text)}
               onRemoveItem={(catKey, itemId) => removeItem(block.id, catKey, itemId)}
+              onKpi={(kpiKey, value) => updateBlockKpi(block.id, kpiKey, value)}
             />
           </Card>
         </div>
@@ -290,9 +307,10 @@ type BlockCardProps = {
   onAddItem: (catKey: keyof GoalCategories) => void
   onUpdateItem: (catKey: keyof GoalCategories, itemId: string, text: string) => void
   onRemoveItem: (catKey: keyof GoalCategories, itemId: string) => void
+  onKpi: (kpiKey: string, value: number) => void
 }
 
-function GoalBlockCard({ block, isFirst, isLast, onMeta, onMoveUp, onMoveDown, onRemove, onAddItem, onUpdateItem, onRemoveItem }: BlockCardProps) {
+function GoalBlockCard({ block, isFirst, isLast, onMeta, onMoveUp, onMoveDown, onRemove, onAddItem, onUpdateItem, onRemoveItem, onKpi }: BlockCardProps) {
   const [editingLabel, setEditingLabel] = useState(false)
   const [editingEmoji, setEditingEmoji] = useState(false)
   const [labelInput, setLabelInput] = useState(block.label)
@@ -420,6 +438,28 @@ function GoalBlockCard({ block, isFirst, isLast, onMeta, onMoveUp, onMoveDown, o
             />
           </div>
         )}
+
+        {/* 目標数値（アポ獲得/アポ実施/面談獲得/面談実施/成約） */}
+        <div className="bg-slate-950/40 rounded-lg px-3 py-2.5">
+          <div className="text-sm font-semibold text-slate-300 mb-2">🎯 目標数値</div>
+          <div className="grid grid-cols-5 gap-2">
+            {GOAL_KPIS.map(k => (
+              <div key={k.key}>
+                <label className="text-[10px] block mb-1 text-center" style={{ color: k.color }}>{k.label}</label>
+                <input
+                  type="number"
+                  min={0}
+                  inputMode="numeric"
+                  className="w-full bg-slate-900/60 border border-slate-700/60 rounded-md px-1 py-1.5 text-sm text-slate-100 text-center outline-none focus:border-slate-500"
+                  value={block.kpis?.[k.key] ?? ''}
+                  placeholder="—"
+                  onChange={e => onKpi(k.key, parseInt(e.target.value) || 0)}
+                  onFocus={e => e.target.select()}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
 
         {/* 5カテゴリ */}
         <div className="space-y-3">
