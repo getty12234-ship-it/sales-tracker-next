@@ -677,7 +677,7 @@ function CauseGroupList({
     <Card className="bg-slate-900 border-slate-800">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm text-slate-300">原因別アクションリスト</CardTitle>
+          <CardTitle className="text-sm text-slate-300">原因の原因</CardTitle>
           {!readOnly && (
             <Button variant="ghost" size="sm" className="h-7 text-xs text-indigo-400 hover:text-indigo-300" onClick={addGroup}>
               <Plus className="w-3.5 h-3.5 mr-1" />原因追加
