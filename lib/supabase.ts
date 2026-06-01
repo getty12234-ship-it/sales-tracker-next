@@ -83,6 +83,9 @@ export type InstagramAccount = {
   name: string
   url: string
   member_id: string
+  cur_followers?: number // 現在のフォロワー数（スナップショット）
+  cur_follows?: number   // 現在のフォロー中数（スナップショット）
+  cur_posts?: number     // 現在の投稿数（スナップショット）
   created_at?: string
 }
 

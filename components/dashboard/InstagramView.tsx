@@ -2,18 +2,18 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAppState } from '@/lib/store'
-import { getInstagramAccounts, getInstagramMetrics, getInstagramMonthlyMetrics, upsertInstagramMetrics, createInstagramAccount } from '@/lib/queries'
+import { getInstagramAccounts, getInstagramMetrics, getInstagramMonthlyMetrics, upsertInstagramMetrics, createInstagramAccount, updateInstagramAccountStats } from '@/lib/queries'
 import { getWeekDays, formatDateJa, currentYearMonth, pct } from '@/lib/date-utils'
 import { IG_METRIC_FIELDS, IG_STOCK_FIELDS, IG_TRIM_FIELDS, IG_FUNNEL, IG_TREND_LINES, IG_EMPTY_METRICS } from '@/lib/constants'
 import { syncEvents } from './Header'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Plus, Camera, TrendingUp, Download, Table2, Filter, Users, Ban } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, Area, AreaChart } from 'recharts'
-import type { InstagramMetrics } from '@/lib/supabase'
+import type { InstagramMetrics, InstagramAccount } from '@/lib/supabase'
 
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const num = (v: unknown) => (typeof v === 'number' ? v : parseInt(String(v ?? '')) || 0)
@@ -99,6 +99,36 @@ export function InstagramView() {
     },
   })
 
+  // アカウントの現在の数値（スナップショット：フォロワー/フォロー中/投稿数）
+  const [stats, setStats] = useState({ cur_followers: 0, cur_follows: 0, cur_posts: 0 })
+  const statsTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => {
+    setStats({
+      cur_followers: effectiveAccount?.cur_followers || 0,
+      cur_follows: effectiveAccount?.cur_follows || 0,
+      cur_posts: effectiveAccount?.cur_posts || 0,
+    })
+  }, [effectiveAccountId, effectiveAccount?.cur_followers, effectiveAccount?.cur_follows, effectiveAccount?.cur_posts])
+
+  const { mutate: saveStats } = useMutation({
+    mutationFn: (patch: { cur_followers: number; cur_follows: number; cur_posts: number }) =>
+      updateInstagramAccountStats(effectiveAccountId!, patch),
+    onMutate: () => syncEvents.emit('saving'),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['ig_accounts', currentMember?.id], (old: InstagramAccount[] = []) =>
+        old.map(a => a.id === updated.id ? updated : a))
+      syncEvents.emit('saved'); setTimeout(() => syncEvents.emit('idle'), 2000)
+    },
+    onError: () => syncEvents.emit('error'),
+  })
+
+  const handleStat = (key: 'cur_followers' | 'cur_follows' | 'cur_posts', value: number) => {
+    const next = { ...stats, [key]: value }
+    setStats(next)
+    if (statsTimer.current) clearTimeout(statsTimer.current)
+    statsTimer.current = setTimeout(() => saveStats(next), 600)
+  }
+
   // 数値フィールド入力（フロー/ストック共通）
   const handleChange = useCallback((date: string, field: string, value: number) => {
     if (!effectiveAccountId) return
@@ -147,9 +177,10 @@ export function InstagramView() {
   const stockDelta = (key: string) => { const l = stockLatest(key), f = stockFirst(key); return (l > 0 && f > 0) ? l - f : 0 }
   const blockedDays = weekDays.filter(d => metricsMap[d]?.blocked).length
 
-  const followerLatest = stockLatest('followers')
+  // 現在値はアカウントのスナップショット優先（無ければ日次の最新値）
+  const followerLatest = effectiveAccount?.cur_followers || stockLatest('followers')
   const followerDelta = stockDelta('followers')
-  const followLatest = stockLatest('follows')
+  const followLatest = effectiveAccount?.cur_follows || stockLatest('follows')
   const dmSendWeek = flowSum('dm_send')
   const seiyakuWeek = flowSum('ig_seiyaku')
   const funnelTop = flowSum('dm_send')
@@ -242,6 +273,37 @@ export function InstagramView() {
         </Card>
       ) : (
         <>
+          {/* 現在の数値（アカウントごと・プロフィール最新値） */}
+          <Card className="bg-slate-900 border-slate-800">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
+                <Users className="w-4 h-4 text-pink-400" />現在の数値
+                <span className="text-[11px] font-normal text-slate-500">{effectiveAccount?.name} のプロフィール最新値を記入</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-3 gap-3 max-w-md">
+                {([
+                  { key: 'cur_followers', label: 'フォロワー', color: '#f472b6' },
+                  { key: 'cur_follows', label: 'フォロー中', color: '#ec4899' },
+                  { key: 'cur_posts', label: '投稿数', color: '#a78bfa' },
+                ] as const).map(f => (
+                  <div key={f.key}>
+                    <label className="text-[11px] block mb-1" style={{ color: f.color }}>{f.label}</label>
+                    <input
+                      type="number" min={0} inputMode="numeric"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-md px-2 py-1.5 text-base font-bold text-slate-100 outline-none focus:border-slate-500"
+                      value={stats[f.key] || ''}
+                      placeholder="0"
+                      onChange={e => handleStat(f.key, parseInt(e.target.value) || 0)}
+                      onFocus={e => e.target.select()}
+                    />
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
           {/* ヘッドライン */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             <Card className="bg-slate-900 border-slate-800 ring-1 ring-pink-500/30">

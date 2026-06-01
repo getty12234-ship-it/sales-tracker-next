@@ -163,6 +163,21 @@ export async function createInstagramAccount(name: string, url: string, memberId
   return data
 }
 
+// アカウントの現在の数値（フォロワー/フォロー中/投稿数）を更新
+export async function updateInstagramAccountStats(
+  accountId: string,
+  patch: { cur_followers?: number; cur_follows?: number; cur_posts?: number }
+) {
+  const { data, error } = await supabase
+    .from('st_instagram_accounts')
+    .update(patch)
+    .eq('id', accountId)
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
 export async function getInstagramMetrics(accountId: string, startDate: string, endDate: string) {
   const { data, error } = await supabase
     .from('st_instagram_metrics')
