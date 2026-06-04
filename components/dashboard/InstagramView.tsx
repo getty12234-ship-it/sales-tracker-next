@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAppState } from '@/lib/store'
-import { getInstagramAccounts, getInstagramMetrics, getInstagramMonthlyMetrics, upsertInstagramMetrics, createInstagramAccount, updateInstagramAccountStats } from '@/lib/queries'
+import { getInstagramAccounts, getInstagramMetrics, getInstagramMonthlyMetrics, upsertInstagramMetrics, createInstagramAccount, updateInstagramAccountStats, deleteInstagramAccount } from '@/lib/queries'
 import { getWeekDays, formatDateJa, currentYearMonth, pct } from '@/lib/date-utils'
 import { IG_METRIC_FIELDS, IG_STOCK_FIELDS, IG_TRIM_FIELDS, IG_FUNNEL, IG_TREND_LINES, IG_EMPTY_METRICS } from '@/lib/constants'
 import { syncEvents } from './Header'
@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Plus, Camera, TrendingUp, Download, Table2, Filter, Users, Ban } from 'lucide-react'
+import { Plus, Camera, TrendingUp, Download, Table2, Filter, Users, Ban, X } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, Area, AreaChart } from 'recharts'
 import type { InstagramMetrics, InstagramAccount } from '@/lib/supabase'
 
@@ -98,6 +98,27 @@ export function InstagramView() {
       alert(`アカウント追加に失敗しました。\n${msg}`)
     },
   })
+
+  // アカウント削除
+  const { mutate: removeAccount, isPending: deletingAccount } = useMutation({
+    mutationFn: (id: string) => deleteInstagramAccount(id),
+    onSuccess: (deletedId) => {
+      queryClient.invalidateQueries({ queryKey: ['ig_accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['ig_monthly_all'] })
+      if (selectedAccountId === deletedId) setSelectedAccountId(null)
+    },
+    onError: (e: unknown) => {
+      const msg = e instanceof Error ? e.message : String(e)
+      alert(`アカウント削除に失敗しました。\n${msg}`)
+    },
+  })
+
+  const handleDeleteAccount = (acc: { id: string; name: string }) => {
+    if (deletingAccount) return
+    if (window.confirm(`「${acc.name}」を削除しますか？\nこのアカウントの数値データもすべて削除され、元に戻せません。`)) {
+      removeAccount(acc.id)
+    }
+  }
 
   // アカウントの現在の数値（スナップショット：フォロワー/フォロー中/投稿数）
   const [stats, setStats] = useState({ cur_followers: 0, cur_follows: 0, cur_posts: 0 })
@@ -209,17 +230,28 @@ export function InstagramView() {
           <div className="flex items-center gap-2 flex-wrap">
             <Camera className="w-4 h-4 text-pink-400" />
             <span className="text-xs text-slate-400">アカウント:</span>
-            {accounts.map(acc => (
-              <button
-                key={acc.id}
-                onClick={() => setSelectedAccountId(acc.id)}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                  effectiveAccountId === acc.id ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-                }`}
-              >
-                {acc.name}
-              </button>
-            ))}
+            {accounts.map(acc => {
+              const active = effectiveAccountId === acc.id
+              return (
+                <span
+                  key={acc.id}
+                  className={`inline-flex items-center rounded-full text-xs font-medium transition-colors ${
+                    active ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                  }`}
+                >
+                  <button onClick={() => setSelectedAccountId(acc.id)} className="pl-3 pr-1.5 py-1">
+                    {acc.name}
+                  </button>
+                  <button
+                    onClick={() => handleDeleteAccount(acc)}
+                    className={`mr-1 rounded-full p-0.5 ${active ? 'hover:bg-black/25 text-white/80' : 'hover:bg-red-500/20 text-slate-500 hover:text-red-400'}`}
+                    title="このアカウントを削除"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )
+            })}
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger render={<Button variant="ghost" size="sm" className="h-7 text-xs text-pink-400 hover:text-pink-300" />}>
                 <Plus className="w-3.5 h-3.5 mr-1" />追加

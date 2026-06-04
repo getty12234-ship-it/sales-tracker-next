@@ -163,6 +163,21 @@ export async function createInstagramAccount(name: string, url: string, memberId
   return data
 }
 
+// アカウント削除（関連メトリクスも先に削除してFK制約を回避）
+export async function deleteInstagramAccount(accountId: string) {
+  const { error: mErr } = await supabase
+    .from('st_instagram_metrics')
+    .delete()
+    .eq('account_id', accountId)
+  if (mErr) throw mErr
+  const { error } = await supabase
+    .from('st_instagram_accounts')
+    .delete()
+    .eq('id', accountId)
+  if (error) throw error
+  return accountId
+}
+
 // アカウントの現在の数値（フォロワー/フォロー中/投稿数）を更新
 export async function updateInstagramAccountStats(
   accountId: string,
