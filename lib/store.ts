@@ -27,8 +27,8 @@ export type AppState = {
   setMembers: (members: Member[]) => void
 
   // 選択中のチーム
-  currentTeam: 'core' | 'top' | 'second' | 'third'
-  setCurrentTeam: (t: 'core' | 'top' | 'second' | 'third') => void
+  currentTeam: 'core' | 'top' | 'second' | 'third' | 'jigyo'
+  setCurrentTeam: (t: 'core' | 'top' | 'second' | 'third' | 'jigyo') => void
 
   // 認証情報
   isAdmin: boolean

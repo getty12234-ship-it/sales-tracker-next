@@ -6,7 +6,7 @@ import { getMembers } from '@/lib/queries'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { useEffect, useState } from 'react'
-import { Check, Loader2, Wifi, LogOut } from 'lucide-react'
+import { Check, Loader2, Wifi, LogOut, Lock } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 
@@ -132,6 +132,18 @@ export function Header() {
               }`}
             >
               3RD
+            </button>
+            {/* 個人事業（原田さん専用・CoCoメンバーからは完全非表示。RLSでもデータ隔離） */}
+            <button
+              onClick={() => setCurrentTeam('jigyo')}
+              className={`px-2.5 py-1 rounded-md font-semibold transition-colors flex items-center gap-1 ${
+                currentTeam === 'jigyo'
+                  ? 'bg-amber-600 text-white'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="個人事業（あなただけが見られる非公開エリア）"
+            >
+              <Lock className="w-3 h-3" />個人事業
             </button>
           </div>
         )}
