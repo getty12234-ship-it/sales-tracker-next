@@ -53,6 +53,9 @@ export function Header() {
       if (!currentMember || (currentMember.team || 'top') !== currentTeam) {
         setCurrentMember(teamMembers[0])
       }
+    } else if (currentMember) {
+      // 選択チームにメンバーがいなければ選択解除（他チームのデータが残らないように）
+      setCurrentMember(null)
     }
   }, [currentTeam, members, isAdmin, currentMember, setCurrentMember])
 
