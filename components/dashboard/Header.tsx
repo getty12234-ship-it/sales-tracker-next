@@ -12,6 +12,9 @@ import { useRouter } from 'next/navigation'
 
 type SyncState = 'idle' | 'saving' | 'saved' | 'error'
 
+// 個人事業タブのオーナー（原田陽一）。このメンバーIDのログインユーザーにだけ表示する
+const OWNER_MEMBER_ID = '4bfbcca0-70c7-4aab-b40e-b5c861a46894'
+
 // 同期状態をグローバルに管理するためのイベントシステム
 export const syncEvents = {
   listeners: new Set<(s: SyncState) => void>(),
@@ -29,7 +32,7 @@ export function Header() {
     currentMember, setCurrentMember,
     members, setMembers,
     currentTeam, setCurrentTeam,
-    isAdmin,
+    isAdmin, authMemberId,
   } = useAppState()
   const [syncState, setSyncState] = useState<SyncState>('idle')
   const router = useRouter()
@@ -136,18 +139,20 @@ export function Header() {
             >
               3RD
             </button>
-            {/* 個人事業（原田さん専用・CoCoメンバーからは完全非表示。RLSでもデータ隔離） */}
-            <button
-              onClick={() => setCurrentTeam('jigyo')}
-              className={`px-2.5 py-1 rounded-md font-semibold transition-colors flex items-center gap-1 ${
-                currentTeam === 'jigyo'
-                  ? 'bg-amber-600 text-white'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-              title="個人事業（あなただけが見られる非公開エリア）"
-            >
-              <Lock className="w-3 h-3" />個人事業
-            </button>
+            {/* 個人事業（原田さん本人のIDのみ表示・CoCoメンバーや他管理者からも完全非表示。RLSでもデータ隔離） */}
+            {authMemberId === OWNER_MEMBER_ID && (
+              <button
+                onClick={() => setCurrentTeam('jigyo')}
+                className={`px-2.5 py-1 rounded-md font-semibold transition-colors flex items-center gap-1 ${
+                  currentTeam === 'jigyo'
+                    ? 'bg-amber-600 text-white'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="個人事業（あなただけが見られる非公開エリア）"
+              >
+                <Lock className="w-3 h-3" />個人事業
+              </button>
+            )}
           </div>
         )}
 
