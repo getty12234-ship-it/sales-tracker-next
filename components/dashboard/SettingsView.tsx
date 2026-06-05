@@ -16,7 +16,7 @@ import { Plus, Trash2, Users, Target, Wallet } from 'lucide-react'
 
 export function SettingsView() {
   const { currentMember, setCurrentMember, members: allMembers, setMembers, currentTeam } = useAppState()
-  const members = allMembers.filter(m => (m.team || 'top') === currentTeam)
+  const members = allMembers.filter(m => (m.team || 'top') === currentTeam && !m.is_admin)
   const queryClient = useQueryClient()
 
   // 目標・予算設定

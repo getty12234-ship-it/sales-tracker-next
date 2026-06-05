@@ -22,8 +22,8 @@ function getPeriodRange(period: Period): [string, string] {
 
 export function TeamSummary() {
   const { members: allMembers, currentTeam } = useAppState()
-  // 現在のチームのメンバーのみ表示
-  const members = allMembers.filter(m => (m.team || 'top') === currentTeam)
+  // 現在のチームのメンバーのみ表示（is_admin=trueはログイン専用なのでチーム一覧から除外）
+  const members = allMembers.filter(m => (m.team || 'top') === currentTeam && !m.is_admin)
   const [period, setPeriod] = useState<Period>('month')
   const [sortKey, setSortKey] = useState('seiyaku')
   const [sortAsc, setSortAsc] = useState(false)

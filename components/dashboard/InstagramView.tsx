@@ -3,15 +3,15 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAppState } from '@/lib/store'
 import { getInstagramAccounts, getInstagramMetrics, getInstagramMonthlyMetrics, upsertInstagramMetrics, createInstagramAccount, updateInstagramAccountStats, deleteInstagramAccount } from '@/lib/queries'
-import { getWeekDays, formatDateJa, currentYearMonth, pct } from '@/lib/date-utils'
-import { IG_METRIC_FIELDS, IG_STOCK_FIELDS, IG_TRIM_FIELDS, IG_FUNNEL, IG_TREND_LINES, IG_EMPTY_METRICS } from '@/lib/constants'
+import { getWeekDays, formatDateJa, currentYearMonth, pct, cumulativeBudgetTarget, requiredDailyFromNow, passedWorkdays, remainingWorkdays, totalWorkdays } from '@/lib/date-utils'
+import { IG_METRIC_FIELDS, IG_STOCK_FIELDS, IG_TRIM_FIELDS, IG_POST_FIELDS, IG_FUNNEL, IG_TREND_LINES, IG_EMPTY_METRICS, IG_DEFAULT_GOALS, IG_KPI_SUMMARY } from '@/lib/constants'
 import { syncEvents } from './Header'
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Plus, Camera, TrendingUp, Download, Table2, Filter, Users, Ban, X } from 'lucide-react'
+import { Plus, Camera, TrendingUp, Download, Table2, Filter, Users, Ban, X, Target } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, Area, AreaChart } from 'recharts'
 import type { InstagramMetrics, InstagramAccount } from '@/lib/supabase'
 
@@ -218,6 +218,7 @@ export function InstagramView() {
   // 入力テーブルのグループ定義
   const tableGroups = [
     { group: 'ストック（累計）', stock: true, fields: [{ key: 'follows', label: 'フォロー', color: '#ec4899' }, { key: 'followers', label: 'フォロワー', color: '#f472b6' }] },
+    { group: '投稿', stock: false, fields: IG_POST_FIELDS },
     { group: '削り', stock: false, fields: IG_TRIM_FIELDS },
     { group: '商談フロー', stock: false, fields: IG_FUNNEL.map(({ key, label, color }) => ({ key, label, color })) },
   ]
@@ -378,6 +379,13 @@ export function InstagramView() {
               </CardContent>
             </Card>
           </div>
+
+          {/* 月間目標進捗（KPIごとのバー：達成率・ペース・予算） */}
+          <IgGoalProgress
+            account={effectiveAccount}
+            monthMetrics={selectedMonthMetrics}
+            ym={ym}
+          />
 
           {/* ファネル（今週） */}
           <Card className="bg-slate-900 border-slate-800">
@@ -564,6 +572,142 @@ export function InstagramView() {
         </>
       )}
     </div>
+  )
+}
+
+// ===== 月間目標進捗（KPIごとのバー：達成率・ペース・予算） =====
+function IgGoalProgress({
+  account, monthMetrics, ym,
+}: {
+  account: InstagramAccount | null
+  monthMetrics: InstagramMetrics[]
+  ym: string
+}) {
+  if (!account) return null
+  const totals = monthAgg(monthMetrics)
+  const passed = passedWorkdays(ym)
+  const remaining = remainingWorkdays(ym)
+
+  return (
+    <Card className="bg-slate-900 border-slate-800">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
+          <Target className="w-4 h-4 text-pink-400" />月間目標進捗（{ym.replace('-', '年')}月）
+          <span className="text-[11px] font-normal text-slate-500">{account.name} ・ 経過 {passed}日 / 残り {remaining}日</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+          {IG_KPI_SUMMARY.map(({ key, label, color, important }) => {
+            const val = totals[key] || 0
+            const goal = IG_DEFAULT_GOALS[key] || 0
+            // 予算はいまのところ目標と同値を使用（DB対応後にst_settingsで個別設定可能化）
+            const budget = goal
+            const rate = pct(val, goal)
+            const cumTarget = budget > 0 ? cumulativeBudgetTarget(budget, ym) : 0
+            const reqDaily = budget > 0 ? requiredDailyFromNow(budget, val, ym) : 0
+            const needPerDay = remaining > 0 ? Math.ceil(Math.max(0, goal - val) / remaining) : 0
+            return (
+              <IgKpiCard
+                key={key}
+                label={label}
+                value={val}
+                goal={goal}
+                budget={budget}
+                rate={rate}
+                color={color}
+                important={important}
+                cumulativeTarget={cumTarget}
+                requiredDailyBudget={reqDaily}
+                needPerDay={needPerDay}
+              />
+            )
+          })}
+        </div>
+        <div className="mt-3 text-[10px] text-slate-600 leading-relaxed">
+          💡 目標は公式運用ルールに基づくデフォルト値（1アカ：投稿30/月・DM900/月・アポ獲得10/月・成約1/月）。<br />
+          黄色の縦線 = 今日の累積目標位置。実績バーが線を越えていれば「ペース通り」。
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+// KPIカード（達成率バー＋ペースバー＋予算バー）
+function IgKpiCard({
+  label, value, goal, budget, rate, color, important, cumulativeTarget, requiredDailyBudget, needPerDay,
+}: {
+  label: string
+  value: number
+  goal: number
+  budget: number
+  rate: number
+  color: string
+  important: boolean
+  cumulativeTarget: number
+  requiredDailyBudget: number
+  needPerDay: number
+}) {
+  const progressColor = rate >= 100 ? 'bg-green-500' : rate >= 70 ? 'bg-yellow-400' : 'bg-red-500'
+  const hasBudget = budget > 0
+  const paceBase = hasBudget ? budget : goal
+  const budgetRate = hasBudget ? Math.round((value / budget) * 100) : 0
+  const isOnPace = cumulativeTarget > 0 ? value >= cumulativeTarget : true
+  const paceGap = cumulativeTarget > 0 ? Math.round(value - cumulativeTarget) : 0
+  const pacePct = paceBase > 0 ? Math.min(100, Math.round((cumulativeTarget / paceBase) * 100)) : 0
+
+  return (
+    <Card className={`bg-slate-950/40 border-slate-800 ${important ? 'ring-1 ring-indigo-500/30' : ''}`}>
+      <CardContent className="p-3">
+        <div className="text-xs text-slate-500 mb-1 truncate">{label}</div>
+        <div className="flex items-baseline justify-between mb-2">
+          <span className="text-2xl font-bold" style={{ color }}>{value}</span>
+          <span className="text-xs text-slate-500">/{goal}</span>
+        </div>
+
+        {/* ① 達成率バー（目標ベース） */}
+        <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mb-1" title={`目標達成率 ${rate}%`}>
+          <div className={`h-full rounded-full transition-all ${progressColor}`} style={{ width: `${Math.min(100, rate)}%` }} />
+        </div>
+
+        {/* ② ペースライン（今日時点の累積目標位置を示すマーカー） */}
+        {cumulativeTarget > 0 && paceBase > 0 && (
+          <div
+            className="relative w-full h-1 bg-slate-800/60 rounded-full overflow-hidden mb-1"
+            title={`今日の累積目標 ${cumulativeTarget}（黄線）／ 実績 ${value}`}
+          >
+            <div
+              className="h-full rounded-full transition-all bg-indigo-500/50"
+              style={{ width: `${Math.min(100, Math.round((value / paceBase) * 100))}%` }}
+            />
+            <div className="absolute top-0 w-0.5 h-full bg-yellow-400" style={{ left: `${pacePct}%` }} />
+          </div>
+        )}
+
+        <div className="space-y-0.5">
+          <div className="flex justify-between text-xs">
+            <span className="text-slate-500">{rate}%</span>
+            {needPerDay > 0 ? (
+              <span className="text-amber-400 text-[10px]">要{needPerDay}/日</span>
+            ) : null}
+          </div>
+          {cumulativeTarget > 0 && (
+            <div className="flex justify-between items-center text-[10px] mt-0.5 pt-0.5 border-t border-slate-800">
+              <span className="text-slate-500">
+                今日累積: <span className={`font-bold ${isOnPace ? 'text-cyan-400' : 'text-yellow-400'}`}>{cumulativeTarget}</span>
+              </span>
+              {value >= paceBase ? (
+                <span className="text-green-400 font-bold">✓ 達成</span>
+              ) : isOnPace ? (
+                <span className="text-cyan-400">▲{paceGap} 先行</span>
+              ) : (
+                <span className="text-red-400 font-bold">▼{Math.abs(paceGap)} 遅れ</span>
+              )}
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 

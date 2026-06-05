@@ -97,6 +97,7 @@ export type InstagramMetrics = {
   followers: number        // フォロワー（累計・ストック）
   follow_trim: number      // フォロー削り（日次）
   follower_trim: number    // フォロワー削り（日次）
+  posts: number            // 投稿数（その日に投稿した本数・日次フロー）
   dm_send: number          // DM送信（新規送信数）
   dm_reply: number         // DM返信（新規返信数）
   ig_offer: number         // オファー

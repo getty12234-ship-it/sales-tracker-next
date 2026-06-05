@@ -51,7 +51,7 @@ export function Header() {
   // チーム切り替え時: そのチームの最初のメンバーを自動選択（管理者のみ）
   useEffect(() => {
     if (!isAdmin) return
-    const teamMembers = members.filter(m => (m.team || 'top') === currentTeam)
+    const teamMembers = members.filter(m => (m.team || 'top') === currentTeam && !m.is_admin)
     if (teamMembers.length > 0) {
       if (!currentMember || (currentMember.team || 'top') !== currentTeam) {
         setCurrentMember(teamMembers[0])
@@ -66,8 +66,8 @@ export function Header() {
   useEffect(() => {
     if (!isAdmin) return
     if (!currentMember && members.length > 0) {
-      const coreMembers = members.filter(m => (m.team || 'top') === 'core')
-      setCurrentMember(coreMembers[0] || members[0])
+      const coreMembers = members.filter(m => (m.team || 'top') === 'core' && !m.is_admin)
+      setCurrentMember(coreMembers[0] || members.find(m => !m.is_admin) || null)
     }
   }, [members, currentMember, isAdmin, setCurrentMember])
 
@@ -90,7 +90,7 @@ export function Header() {
   }
 
   // 現在のチームのメンバーのみ表示
-  const teamMembers = members.filter(m => (m.team || 'top') === currentTeam)
+  const teamMembers = members.filter(m => (m.team || 'top') === currentTeam && !m.is_admin)
 
   return (
     <header className="h-14 border-b border-slate-800 flex items-center justify-between px-4 bg-[#060d1f] shrink-0">

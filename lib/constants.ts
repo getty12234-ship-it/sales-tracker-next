@@ -83,6 +83,7 @@ export const IG_METRIC_FIELDS: { key: string; label: string; stock?: boolean }[]
   { key: 'followers',    label: 'フォロワー',    stock: true },
   { key: 'follow_trim',  label: 'フォロー削り' },
   { key: 'follower_trim',label: 'フォロワー削り' },
+  { key: 'posts',        label: '投稿数' },
   { key: 'dm_send',      label: 'DM送信' },
   { key: 'dm_reply',     label: 'DM返信' },
   { key: 'ig_offer',     label: 'オファー' },
@@ -103,6 +104,11 @@ export const IG_STOCK_FIELDS = [
 export const IG_TRIM_FIELDS = [
   { key: 'follow_trim',   label: 'フォロー削り',   color: '#fb7185' },
   { key: 'follower_trim', label: 'フォロワー削り', color: '#fda4af' },
+]
+
+// 投稿（日次フロー・独立行）
+export const IG_POST_FIELDS = [
+  { key: 'posts', label: '投稿数', color: '#a78bfa' },
 ]
 
 // Instagram ファネル（DM→成約の商談フロー順。上＝起点 / 下＝ゴール）
@@ -129,7 +135,34 @@ export const IG_TREND_LINES = [
 
 // Instagram メトリクスの空レコード（upsert既定値・新規行初期化）
 export const IG_EMPTY_METRICS = {
-  follows: 0, followers: 0, follow_trim: 0, follower_trim: 0,
+  follows: 0, followers: 0, follow_trim: 0, follower_trim: 0, posts: 0,
   dm_send: 0, dm_reply: 0, ig_offer: 0, ig_apo_get: 0, ig_apo_exec: 0,
   ig_doin_get: 0, ig_doin_exec: 0, ig_seiyaku: 0, blocked: false,
 }
+
+// Instagram 目標値のデフォルト（DEFAULT_GOALSのインスタ版・進捗バー用）
+// 1アカ月間想定：DM 1200件（40件/日×30日）、返信10%→120、オファー60%→72、アポ→獲得1%→12
+export const IG_DEFAULT_GOALS: Record<string, number> = {
+  posts:        30,   // 月30投稿（1日1投稿目安）
+  dm_send:      900,  // 月900件（公式：1アカ最大40件/日×平日22-25日）
+  dm_reply:     90,   // 月90件（返信率10%）
+  ig_offer:     40,   // 月40件
+  ig_apo_get:   10,   // 月10件（公式：1アカ月間アポ獲得標準）
+  ig_apo_exec:  7,    // 月7件（実施率70%）
+  ig_doin_get:  3,    // 月3件
+  ig_doin_exec: 2,    // 月2件
+  ig_seiyaku:   1,    // 月1成約
+}
+
+// Instagram 進捗バー用KPI（サマリーと同じ形式）
+export const IG_KPI_SUMMARY = [
+  { key: 'posts',        label: '投稿数',    color: '#a78bfa', important: false },
+  { key: 'dm_send',      label: 'DM送信',    color: '#60a5fa', important: false },
+  { key: 'dm_reply',     label: 'DM返信',    color: '#38bdf8', important: false },
+  { key: 'ig_offer',     label: 'オファー',  color: '#f59e0b', important: false },
+  { key: 'ig_apo_get',   label: 'アポ獲得',  color: '#a78bfa', important: false },
+  { key: 'ig_apo_exec',  label: 'アポ実施',  color: '#06b6d4', important: true  },
+  { key: 'ig_doin_get',  label: '動員',      color: '#818cf8', important: false },
+  { key: 'ig_doin_exec', label: '動員実施',  color: '#8b5cf6', important: true  },
+  { key: 'ig_seiyaku',   label: '成約',      color: '#22c55e', important: true  },
+]
