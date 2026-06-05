@@ -1,5 +1,6 @@
-import { SummaryDashboard } from '@/components/dashboard/SummaryDashboard'
+import { UnifiedSummary } from '@/components/dashboard/UnifiedSummary'
 
-export default function DashboardPage() {
-  return <SummaryDashboard />
+// 統合サマリー（その他の獲得方法 + インスタ）を一画面で表示
+export default function UnifiedSummaryPage() {
+  return <UnifiedSummary />
 }

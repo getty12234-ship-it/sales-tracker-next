@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAppState } from '@/lib/store'
-import { getInstagramAccounts, getInstagramMetrics, getInstagramMonthlyMetrics, upsertInstagramMetrics, createInstagramAccount, updateInstagramAccountStats, deleteInstagramAccount } from '@/lib/queries'
+import { getInstagramAccounts, getInstagramMetrics, getInstagramMonthlyMetrics, upsertInstagramMetrics, createInstagramAccount, updateInstagramAccountStats, deleteInstagramAccount, getSettings } from '@/lib/queries'
 import { getWeekDays, formatDateJa, currentYearMonth, pct, cumulativeBudgetTarget, requiredDailyFromNow, passedWorkdays, remainingWorkdays, totalWorkdays } from '@/lib/date-utils'
 import { IG_METRIC_FIELDS, IG_STOCK_FIELDS, IG_TRIM_FIELDS, IG_POST_FIELDS, IG_FUNNEL, IG_TREND_LINES, IG_EMPTY_METRICS, IG_DEFAULT_GOALS, IG_KPI_SUMMARY } from '@/lib/constants'
 import { syncEvents } from './Header'
@@ -47,6 +47,14 @@ export function InstagramView() {
     queryFn: () => getInstagramAccounts(currentMember?.id),
     enabled: !!currentMember,
   })
+
+  // インスタ目標カスタマイズ用に settings を取得
+  const { data: settings } = useQuery({
+    queryKey: ['settings', currentMember?.id],
+    queryFn: () => getSettings(currentMember!.id),
+    enabled: !!currentMember,
+  })
+  const rawGoals = (settings?.goals as Record<string, number>) || {}
 
   const effectiveAccountId = selectedAccountId || accounts[0]?.id || null
   const effectiveAccount = accounts.find(a => a.id === effectiveAccountId) || null
@@ -385,6 +393,7 @@ export function InstagramView() {
             account={effectiveAccount}
             monthMetrics={selectedMonthMetrics}
             ym={ym}
+            rawGoals={rawGoals}
           />
 
           {/* ファネル（今週） */}
@@ -577,16 +586,29 @@ export function InstagramView() {
 
 // ===== 月間目標進捗（KPIごとのバー：達成率・ペース・予算） =====
 function IgGoalProgress({
-  account, monthMetrics, ym,
+  account, monthMetrics, ym, rawGoals,
 }: {
   account: InstagramAccount | null
   monthMetrics: InstagramMetrics[]
   ym: string
+  rawGoals: Record<string, number>
 }) {
   if (!account) return null
   const totals = monthAgg(monthMetrics)
   const passed = passedWorkdays(ym)
   const remaining = remainingWorkdays(ym)
+
+  // 目標・予算の解決ロジック（カスタム > デフォルト）
+  const igGoal = (key: string): number => {
+    const customKey = `ig_${key}`
+    if (rawGoals[customKey] !== undefined && rawGoals[customKey] > 0) return rawGoals[customKey]
+    return IG_DEFAULT_GOALS[key] || 0
+  }
+  const igBudget = (key: string): number => {
+    const customKey = `b_ig_${key}`
+    if (rawGoals[customKey] !== undefined && rawGoals[customKey] > 0) return rawGoals[customKey]
+    return igGoal(key)
+  }
 
   return (
     <Card className="bg-slate-900 border-slate-800">
@@ -600,9 +622,8 @@ function IgGoalProgress({
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
           {IG_KPI_SUMMARY.map(({ key, label, color, important }) => {
             const val = totals[key] || 0
-            const goal = IG_DEFAULT_GOALS[key] || 0
-            // 予算はいまのところ目標と同値を使用（DB対応後にst_settingsで個別設定可能化）
-            const budget = goal
+            const goal = igGoal(key)
+            const budget = igBudget(key)
             const rate = pct(val, goal)
             const cumTarget = budget > 0 ? cumulativeBudgetTarget(budget, ym) : 0
             const reqDaily = budget > 0 ? requiredDailyFromNow(budget, val, ym) : 0
@@ -625,7 +646,7 @@ function IgGoalProgress({
           })}
         </div>
         <div className="mt-3 text-[10px] text-slate-600 leading-relaxed">
-          💡 目標は公式運用ルールに基づくデフォルト値（1アカ：投稿30/月・DM900/月・アポ獲得10/月・成約1/月）。<br />
+          💡 目標は設定画面の「インスタの予算・目標設定」でカスタマイズ可。未設定なら公式運用ルール基準（1アカ：投稿30/月・DM900/月・アポ獲得10/月・成約1/月）。<br />
           黄色の縦線 = 今日の累積目標位置。実績バーが線を越えていれば「ペース通り」。
         </div>
       </CardContent>

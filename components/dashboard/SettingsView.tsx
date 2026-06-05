@@ -3,7 +3,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAppState } from '@/lib/store'
 import { getMembers, createMember, deleteMember, getSettings, upsertSettings } from '@/lib/queries'
-import { DEFAULT_GOALS, MEMBER_COLORS, KPI_SUMMARY } from '@/lib/constants'
+import { DEFAULT_GOALS, MEMBER_COLORS, KPI_SUMMARY, IG_KPI_SUMMARY, IG_DEFAULT_GOALS } from '@/lib/constants'
+import { Camera } from 'lucide-react'
 import { extractBudgets } from '@/lib/supabase'
 import { syncEvents } from './Header'
 import { useState } from 'react'
@@ -80,6 +81,16 @@ export function SettingsView() {
       finalBudgets[key] = b
       // 目標 = 予算 × 1.2（小数点以下切り上げ）
       finalGoals[key] = b > 0 ? Math.ceil(b * 1.2) : (DEFAULT_GOALS[key] || 0)
+    })
+    // インスタ用：ig_ プレフィックス付きで goals/budgets 両方を埋め込む
+    IG_KPI_SUMMARY.forEach(({ key }) => {
+      const igKey = `ig_${key}`
+      const bStr = getBudgetVal(igKey)
+      const b = parseFloat(bStr) || 0
+      // 予算は b_ig_xxx に、目標は ig_xxx に入れる（extractBudgetsはKPI_KEYSのみ対象なので
+      // ig_側はupsertSettingsで生goalsに統合される）
+      finalGoals[`b_${igKey}`] = b
+      finalGoals[igKey] = b > 0 ? Math.ceil(b * 1.2) : (IG_DEFAULT_GOALS[key] || 0)
     })
     saveSettings({ goals: finalGoals, budgets: finalBudgets })
   }
@@ -235,6 +246,55 @@ export function SettingsView() {
                       className="bg-slate-950 border-slate-700 text-sm h-8 text-center"
                       value={bStr}
                       onChange={e => setLocalBudgets(prev => ({ ...prev, [key]: e.target.value }))}
+                    />
+                    <div className="flex items-center justify-center gap-1">
+                      <span className="text-base font-bold text-slate-200">{computedGoal}</span>
+                      <span className="text-xs text-slate-500">/ 月</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* インスタ用 予算・目標設定 */}
+      {currentMember && (
+        <Card className="bg-slate-900 border-slate-800">
+          <CardHeader>
+            <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
+              <Camera className="w-4 h-4 text-pink-400" />
+              インスタの予算・目標設定 ({currentMember.name})
+              <span className="text-[11px] font-normal text-slate-500">同じく「予算×1.2＝目標」</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-slate-500 mb-3">
+              インスタ単独のKPI予算。空欄なら公式デフォルト（1アカ：投稿30/月・DM900/月 等）×アカウント数を使用します。
+            </p>
+            <div className="grid grid-cols-3 gap-2 mb-2 px-1">
+              <span className="text-xs text-slate-500">KPI</span>
+              <span className="text-xs text-slate-500 text-center">予算（絶対達成）</span>
+              <span className="text-xs text-slate-500 text-center">目標（予算×1.2）</span>
+            </div>
+            <div className="space-y-2">
+              {IG_KPI_SUMMARY.map(({ key, label, color }) => {
+                const igKey = `ig_${key}`
+                const bStr = getBudgetVal(igKey)
+                const b = parseFloat(bStr) || 0
+                const dbGoal = rawGoals[igKey]
+                const computedGoal = b > 0 ? Math.ceil(b * 1.2) : (dbGoal ?? IG_DEFAULT_GOALS[key] ?? 0)
+                return (
+                  <div key={key} className="grid grid-cols-3 gap-2 items-center">
+                    <label className="text-sm" style={{ color }}>{label}</label>
+                    <Input
+                      type="number"
+                      min={0}
+                      placeholder="0"
+                      className="bg-slate-950 border-slate-700 text-sm h-8 text-center"
+                      value={bStr}
+                      onChange={e => setLocalBudgets(prev => ({ ...prev, [igKey]: e.target.value }))}
                     />
                     <div className="flex items-center justify-center gap-1">
                       <span className="text-base font-bold text-slate-200">{computedGoal}</span>

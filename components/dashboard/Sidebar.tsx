@@ -5,7 +5,6 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
   BarChart3,
-  Calendar,
   ClipboardList,
   FileText,
   Camera,
@@ -15,18 +14,19 @@ import {
   TrendingUp,
   Map,
   Users,
+  Layers,
 } from 'lucide-react'
 import { useState } from 'react'
 
 const NAV_ITEMS = [
-  { href: '/dashboard',           label: 'サマリー',       icon: TrendingUp,    exact: true },
-  { href: '/dashboard/team',      label: 'チームサマリー', icon: Users },
-  { href: '/dashboard/daily',     label: '日別数字',       icon: Calendar },
-  { href: '/dashboard/review',    label: '施策シート',     icon: ClipboardList },
-  { href: '/dashboard/nippo',     label: '日報',           icon: FileText },
-  { href: '/dashboard/instagram', label: 'インスタ',       icon: Camera },
-  { href: '/dashboard/goals',     label: 'ゴール',         icon: Map },
-  { href: '/dashboard/settings',  label: '設定',           icon: Settings },
+  { href: '/dashboard',           label: '統合サマリー',           icon: Layers,        exact: true },
+  { href: '/dashboard/other',     label: 'その他の獲得方法',       icon: TrendingUp },
+  { href: '/dashboard/instagram', label: 'インスタのサマリー',     icon: Camera },
+  { href: '/dashboard/team',      label: 'チームサマリー',         icon: Users },
+  { href: '/dashboard/review',    label: '施策シート',             icon: ClipboardList },
+  { href: '/dashboard/nippo',     label: '日報',                   icon: FileText },
+  { href: '/dashboard/goals',     label: 'ゴール',                 icon: Map },
+  { href: '/dashboard/settings',  label: '設定',                   icon: Settings },
 ]
 
 export function Sidebar() {

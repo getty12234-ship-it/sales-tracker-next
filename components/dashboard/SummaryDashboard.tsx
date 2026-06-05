@@ -16,6 +16,8 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { syncEvents } from './Header'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts'
+import { DailyMetricsTable } from './DailyMetricsTable'
+import { WeekNav } from './WeekNav'
 
 const NEXT_ACTION_OPTIONS = [
   'T-UP',
@@ -178,7 +180,7 @@ export function SummaryDashboard() {
       {/* ヘッダー */}
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold text-slate-100">
-          {ym.replace('-', '年')}月 サマリー
+          {ym.replace('-', '年')}月 その他の獲得方法サマリー
         </h1>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 text-xs text-slate-400">
@@ -530,6 +532,21 @@ export function SummaryDashboard() {
           )}
         </div>
       )}
+
+      {/* 日別数字入力（旧 /dashboard/daily を統合） */}
+      <Card className="bg-slate-900 border-slate-800">
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-indigo-400" />日別数字（週ごと入力）
+            </CardTitle>
+            <WeekNav />
+          </div>
+        </CardHeader>
+        <CardContent>
+          <DailyMetricsTable />
+        </CardContent>
+      </Card>
     </div>
   )
 }
