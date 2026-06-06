@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAppState } from '@/lib/store'
 import { getInstagramAccounts, getInstagramMetrics, getInstagramMonthlyMetrics, upsertInstagramMetrics, createInstagramAccount, updateInstagramAccountStats, deleteInstagramAccount, getSettings } from '@/lib/queries'
-import { getWeekDays, addWeeks, formatDateJa, currentYearMonth, pct, cumulativeBudgetTarget, requiredDailyFromNow, passedWorkdays, remainingWorkdays, totalWorkdays } from '@/lib/date-utils'
+import { getWeekDays, addWeeks, today, getWeekStart, formatDateJa, currentYearMonth, pct, cumulativeBudgetTarget, requiredDailyFromNow, passedWorkdays, remainingWorkdays, totalWorkdays } from '@/lib/date-utils'
 import { MultiPaceCard, buildPaceWindows } from './PaceBar'
 import { IG_METRIC_FIELDS, IG_STOCK_FIELDS, IG_TRIM_FIELDS, IG_POST_FIELDS, IG_FUNNEL, IG_TREND_LINES, IG_EMPTY_METRICS, IG_DEFAULT_GOALS, IG_KPI_SUMMARY } from '@/lib/constants'
 import { syncEvents } from './Header'
@@ -40,6 +40,8 @@ export function InstagramView() {
   const weekDays = getWeekDays(currentWeekStart)
   const lastWeekStart = addWeeks(currentWeekStart, -1)
   const lastWeekDays = getWeekDays(lastWeekStart)
+  const todayStr = today()                 // 実際の今日（現在の数値の対象日）
+  const weekOfToday = getWeekStart(todayStr) // 今日が属する週の月曜（キャッシュ更新先）
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
   const [newName, setNewName] = useState('')
   const [newUrl, setNewUrl] = useState('')
@@ -142,12 +144,15 @@ export function InstagramView() {
   const [stats, setStats] = useState({ cur_followers: 0, cur_follows: 0, cur_posts: 0 })
   const statsTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => {
+    // フォロワー/フォロー中は「今日の日次（ストック）」を優先表示し、無ければアカウントのスナップショット
+    const td = metricsMap[todayStr]
     setStats({
-      cur_followers: effectiveAccount?.cur_followers || 0,
-      cur_follows: effectiveAccount?.cur_follows || 0,
+      cur_followers: num(td?.followers) || effectiveAccount?.cur_followers || 0,
+      cur_follows: num(td?.follows) || effectiveAccount?.cur_follows || 0,
       cur_posts: effectiveAccount?.cur_posts || 0,
     })
-  }, [effectiveAccountId, effectiveAccount?.cur_followers, effectiveAccount?.cur_follows, effectiveAccount?.cur_posts])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveAccountId, effectiveAccount?.cur_followers, effectiveAccount?.cur_follows, effectiveAccount?.cur_posts, metricsMap[todayStr]?.followers, metricsMap[todayStr]?.follows])
 
   const { mutate: saveStats } = useMutation({
     mutationFn: (patch: { cur_followers: number; cur_follows: number; cur_posts: number }) =>
@@ -161,11 +166,45 @@ export function InstagramView() {
     onError: () => syncEvents.emit('error'),
   })
 
+  // 「現在の数値」フォロワー/フォロー中 → 今日の日次（ストック）に書き込む（双方向リンク用）
+  const { mutate: saveTodayStock } = useMutation({
+    mutationFn: (patch: Partial<InstagramMetrics>) => {
+      const existing = (queryClient.getQueryData<InstagramMetrics[]>(['ig_metrics', effectiveAccountId, weekOfToday]) || [])
+        .find(m => m.date === todayStr)
+      return upsertInstagramMetrics({ account_id: effectiveAccountId!, date: todayStr, ...IG_EMPTY_METRICS, ...existing, ...patch })
+    },
+    onSuccess: (data) => {
+      // 今日が属する週のキャッシュを更新（表示中の週＝今週なら日次テーブルに即反映）
+      queryClient.setQueryData(['ig_metrics', effectiveAccountId, weekOfToday], (old: InstagramMetrics[] = []) => {
+        const idx = old.findIndex(m => m.date === data.date)
+        if (idx >= 0) { const n = [...old]; n[idx] = data; return n }
+        return [...old, data]
+      })
+      queryClient.invalidateQueries({ queryKey: ['ig_monthly_all'] })
+    },
+  })
+
+  // 日次テーブルの今日のフォロワー/フォロー編集 → 「現在の数値」スナップショットに反映（逆方向リンク）
+  const { mutate: patchSnapshot } = useMutation({
+    mutationFn: (patch: { cur_followers?: number; cur_follows?: number; cur_posts?: number }) =>
+      updateInstagramAccountStats(effectiveAccountId!, patch),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['ig_accounts', currentMember?.id], (old: InstagramAccount[] = []) =>
+        old.map(a => a.id === updated.id ? updated : a))
+    },
+  })
+
   const handleStat = (key: 'cur_followers' | 'cur_follows' | 'cur_posts', value: number) => {
     const next = { ...stats, [key]: value }
     setStats(next)
     if (statsTimer.current) clearTimeout(statsTimer.current)
-    statsTimer.current = setTimeout(() => saveStats(next), 600)
+    statsTimer.current = setTimeout(() => {
+      saveStats(next) // アカウントのスナップショット更新
+      // フォロワー/フォロー中は「今日の日次（その日時点の現在値＝ストック）」にもリンク書き込み
+      if (key === 'cur_followers') saveTodayStock({ followers: value })
+      if (key === 'cur_follows') saveTodayStock({ follows: value })
+      // 投稿数(cur_posts)はプロフィール累計のため、フロー値の日次postsとはリンクしない
+    }, 600)
   }
 
   // 数値フィールド入力（フロー/ストック共通）
@@ -179,6 +218,15 @@ export function InstagramView() {
         return [...old, { account_id: effectiveAccountId, date, [field]: value } as InstagramMetrics]
       }
     )
+    // 今日のフォロワー/フォローを編集したら「現在の数値」にも反映（双方向リンク）
+    if (date === todayStr && field === 'followers') {
+      setStats(prev => ({ ...prev, cur_followers: value }))
+      patchSnapshot({ cur_followers: value })
+    }
+    if (date === todayStr && field === 'follows') {
+      setStats(prev => ({ ...prev, cur_follows: value }))
+      patchSnapshot({ cur_follows: value })
+    }
     const key = `${effectiveAccountId}_${date}`
     if (saveTimers.has(key)) clearTimeout(saveTimers.get(key)!)
     syncEvents.emit('saving')
@@ -187,7 +235,7 @@ export function InstagramView() {
       await save({ account_id: effectiveAccountId, date, ...IG_EMPTY_METRICS, ...current })
       saveTimers.delete(key)
     }, 600))
-  }, [effectiveAccountId, currentWeekStart, queryClient, save])
+  }, [effectiveAccountId, currentWeekStart, queryClient, save, todayStr, patchSnapshot])
 
   // ブロックチェック（boolean・即保存）
   const handleBlockToggle = useCallback(async (date: string, checked: boolean) => {
