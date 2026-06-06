@@ -191,39 +191,50 @@ export function cumulativeBudgetTarget(budget: number, yearMonth: string): numbe
 }
 
 // ===== 週次ペース計算（試作シートのバー表示用） =====
-// 考え方: 月の予算/目標を「平日(月〜金)1日あたり」に直し、その週の平日数を掛ける。
-//   週の予算 = (月予算 / 月の総平日数) × その週の平日数
-//   - 基準月は週の月曜日が属する月（月またぎでも安定。先週が先月でも予算ラインが消えない）
-//   - 進行中の週は「今日以前の平日数」だけ掛けて“今ここまで”の目印にする
+// 月次バー(cumulativeBudgetTarget)と完全に同じ「使える日数=月末-3日」基準で算出する。
+//   日当たり = 月の値 / 使える日数(例: 6月=30-3=27)
+//   週の予算 = 日当たり × その週の「使える暦日数」(月内 かつ 末3日を除く)
+//   - 末3日(28,29,30日)は使えないので数えない → 月次と同じ
+//   - これで「週の全週を足すと月予算」「週の“今ここまで線”が月次の“今日まで線”と同じ日付で一致」する
+//   - 基準月は週の月曜が属する月（月またぎでも安定）
 
-// 指定週(月〜日)の平日(月〜金)の YYYY-MM-DD を返す
-function weekdaysOfWeek(weekStart: string): string[] {
-  return getWeekDays(weekStart).filter(ds => {
-    const dow = parseDateLocal(ds).getDay()
-    return dow !== 0 && dow !== 6
-  })
+// 指定週(月〜日)のうち ym に属し、末3日(使えない日)を除いた暦日数。untilToday=true なら今日以前のみ
+function usableDaysInWeek(weekStart: string, ym: string, untilToday: boolean): number {
+  const [y, m] = ym.split('-').map(Number)
+  const cutoff = new Date(y, m, 0).getDate() - 3 // 使える最終日(例: 6月=27日)
+  const todayStr = today()
+  let c = 0
+  for (const ds of getWeekDays(weekStart)) {
+    if (getYearMonth(ds) !== ym) continue
+    const dom = parseDateLocal(ds).getDate()
+    if (dom > cutoff) continue            // 末3日は使えない
+    if (untilToday && ds > todayStr) continue
+    c++
+  }
+  return c
 }
 
-// 週の予算(または目標) = 日当たり(月基準) × その週の平日数
+// 週の予算(または目標) = 日当たり(月の使える日数基準) × その週の使える暦日数
 export function weeklyTarget(monthlyValue: number, weekStart: string): number {
   if (!monthlyValue) return 0
-  const monthWd = totalWorkdays(getYearMonth(weekStart))
-  if (!monthWd) return 0
-  const wd = weekdaysOfWeek(weekStart).length
-  return Math.round((monthlyValue / monthWd) * wd * 10) / 10
+  const ym = getYearMonth(weekStart)
+  const ud = usableDays(ym) // 月末-3日（例: 6月=27）
+  if (!ud) return 0
+  const cnt = usableDaysInWeek(weekStart, ym, false)
+  return Math.round((monthlyValue / ud) * cnt * 10) / 10
 }
 
 // 週の「今(今週)/その週(先週)ここまでに到達しておきたい」ペース
-//   = 日当たり(月基準) × 週内で今日以前の平日数
-//   完了済みの週 → 週の全平日が今日以前 → weeklyTarget と一致（その週フルの目安）
-//   進行中の週   → 今日までの平日分だけ
+//   = 日当たり × 週内で今日以前の使える暦日数
+//   完了済みの週 → 週の全使える日が今日以前 → weeklyTarget と一致（その週フルの目安）
+//   進行中の週   → 今日までの分だけ（月次の cumulativeBudgetTarget と同じ日付で一致）
 export function weeklyCumulativeTarget(monthlyValue: number, weekStart: string): number {
   if (!monthlyValue) return 0
-  const monthWd = totalWorkdays(getYearMonth(weekStart))
-  if (!monthWd) return 0
-  const todayStr = today()
-  const wd = weekdaysOfWeek(weekStart).filter(ds => ds <= todayStr).length
-  return Math.round((monthlyValue / monthWd) * wd * 10) / 10
+  const ym = getYearMonth(weekStart)
+  const ud = usableDays(ym)
+  if (!ud) return 0
+  const cnt = usableDaysInWeek(weekStart, ym, true)
+  return Math.round((monthlyValue / ud) * cnt * 10) / 10
 }
 
 // 今から必要な日当たり = (予算 - 達成数) / 残り使える日数
