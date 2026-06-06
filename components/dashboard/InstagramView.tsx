@@ -144,15 +144,13 @@ export function InstagramView() {
   const [stats, setStats] = useState({ cur_followers: 0, cur_follows: 0, cur_posts: 0 })
   const statsTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => {
-    // フォロワー/フォロー中は「今日の日次（ストック）」を優先表示し、無ければアカウントのスナップショット
-    const td = metricsMap[todayStr]
+    // 現在の数値はアカウントのスナップショットを表示源にする（双方向リンクで常に最新に保たれる）
     setStats({
-      cur_followers: num(td?.followers) || effectiveAccount?.cur_followers || 0,
-      cur_follows: num(td?.follows) || effectiveAccount?.cur_follows || 0,
+      cur_followers: effectiveAccount?.cur_followers || 0,
+      cur_follows: effectiveAccount?.cur_follows || 0,
       cur_posts: effectiveAccount?.cur_posts || 0,
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveAccountId, effectiveAccount?.cur_followers, effectiveAccount?.cur_follows, effectiveAccount?.cur_posts, metricsMap[todayStr]?.followers, metricsMap[todayStr]?.follows])
+  }, [effectiveAccountId, effectiveAccount?.cur_followers, effectiveAccount?.cur_follows, effectiveAccount?.cur_posts])
 
   const { mutate: saveStats } = useMutation({
     mutationFn: (patch: { cur_followers: number; cur_follows: number; cur_posts: number }) =>
@@ -200,9 +198,12 @@ export function InstagramView() {
     if (statsTimer.current) clearTimeout(statsTimer.current)
     statsTimer.current = setTimeout(() => {
       saveStats(next) // アカウントのスナップショット更新
-      // フォロワー/フォロー中は「今日の日次（その日時点の現在値＝ストック）」にもリンク書き込み
-      if (key === 'cur_followers') saveTodayStock({ followers: value })
-      if (key === 'cur_follows') saveTodayStock({ follows: value })
+      // フォロワー/フォロー中は「今日の日次（その日時点の現在値＝ストック）」にもリンク書き込み。
+      // 今日が表示中の週にある時だけ（他フィールドを誤って0で上書きしないよう、読込済みキャッシュがある時に限定）
+      if (currentWeekStart === weekOfToday) {
+        if (key === 'cur_followers') saveTodayStock({ followers: value })
+        if (key === 'cur_follows') saveTodayStock({ follows: value })
+      }
       // 投稿数(cur_posts)はプロフィール累計のため、フロー値の日次postsとはリンクしない
     }, 600)
   }
