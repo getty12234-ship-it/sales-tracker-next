@@ -193,6 +193,19 @@ export async function updateInstagramAccountStats(
   return data
 }
 
+// 複数アカウントのメトリクスをまとめて取得（メンバー単位の集計用）
+export async function getInstagramMetricsByAccounts(accountIds: string[], startDate: string, endDate: string) {
+  if (!accountIds.length) return []
+  const { data, error } = await supabase
+    .from('st_instagram_metrics')
+    .select('*')
+    .in('account_id', accountIds)
+    .gte('date', startDate)
+    .lte('date', endDate)
+  if (error) throw error
+  return data || []
+}
+
 export async function getInstagramMetrics(accountId: string, startDate: string, endDate: string) {
   const { data, error } = await supabase
     .from('st_instagram_metrics')

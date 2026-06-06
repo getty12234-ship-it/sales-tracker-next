@@ -2,9 +2,9 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAppState } from '@/lib/store'
-import { getDailyMetrics, getWeeklyReview, upsertWeeklyReview, getSettings, getStCases } from '@/lib/queries'
+import { getDailyMetrics, getWeeklyReview, upsertWeeklyReview, getSettings, getStCases, getInstagramAccounts, getInstagramMetricsByAccounts } from '@/lib/queries'
 import { getWeekDays, pct, getYearMonth, usableDays, getMonthDays, cumulativeBudgetTarget, requiredDailyFromNow } from '@/lib/date-utils'
-import { METRIC_FIELDS, DEFAULT_GOALS, KPI_SUMMARY } from '@/lib/constants'
+import { METRIC_FIELDS, DEFAULT_GOALS, KPI_SUMMARY, IG_FUNNEL } from '@/lib/constants'
 import { extractBudgets } from '@/lib/supabase'
 import { syncEvents } from './Header'
 import { useEffect, useState, useRef } from 'react'
@@ -108,6 +108,23 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false, monthY
     queryFn: () => getStCases(currentMember!.id),
     enabled: !!currentMember,
   })
+
+  // インスタサマリー用（メンバーの全アカウントを週次集計）
+  const { data: igAccounts = [] } = useQuery({
+    queryKey: ['ig_accounts', currentMember?.id],
+    queryFn: () => getInstagramAccounts(currentMember!.id),
+    enabled: !!currentMember,
+  })
+  const igAccountIds = igAccounts.map(a => a.id)
+  const { data: igWeekMetrics = [] } = useQuery({
+    queryKey: ['ig_metrics_member_week', currentMember?.id, weekStart, igAccountIds.join(',')],
+    queryFn: () => getInstagramMetricsByAccounts(igAccountIds, weekDays[0], weekDays[6]),
+    enabled: !!currentMember && igAccountIds.length > 0,
+  })
+  const igNum = (v: unknown) => (typeof v === 'number' ? v : parseInt(String(v ?? '')) || 0)
+  const igSum = (key: string) => igWeekMetrics.reduce((s, m) => s + igNum((m as Record<string, unknown>)[key]), 0)
+  const igFollowers = igAccounts.reduce((s, a) => s + (a.cur_followers || 0), 0)
+  const igTop = igSum('dm_send')
 
   const { mutateAsync: save } = useMutation({
     mutationFn: upsertWeeklyReview,
@@ -332,6 +349,51 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false, monthY
             </div>
           </CardContent>
         </Card>
+
+        {/* ②.5 インスタサマリー（アカウントがある場合のみ） */}
+        {igAccounts.length > 0 && (
+          <Card className="bg-slate-900 border-pink-900/30 border">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-slate-300 flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  📷 インスタ
+                  <span className="text-xs font-normal text-slate-500">{readOnly ? '先週' : '今週'}・{igAccounts.length}アカウント</span>
+                </span>
+                <span className="text-xs font-normal text-slate-400">
+                  フォロワー <span className="text-pink-300 font-bold">{igFollowers.toLocaleString()}</span>
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-1 p-3 pt-0">
+              {IG_FUNNEL.map(({ key, label, color }) => {
+                const val = igSum(key)
+                const share = igTop > 0 ? Math.round((val / igTop) * 100) : 0
+                return (
+                  <div key={key} className="flex items-center gap-2 py-0.5 border-b border-slate-800/60">
+                    <span className="text-xs w-16 shrink-0" style={{ color }}>{label}</span>
+                    <span className="text-sm font-bold text-slate-100 w-6 text-right shrink-0">{val}</span>
+                    <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full" style={{ width: `${Math.min(100, share)}%`, background: color }} />
+                    </div>
+                  </div>
+                )
+              })}
+              <div className="pt-2 grid grid-cols-2 gap-x-3 gap-y-0.5">
+                {[
+                  { label: 'DM返信率',   value: pct(igSum('dm_reply'),   igSum('dm_send')),     color: '#38bdf8' },
+                  { label: 'アポ率',     value: pct(igSum('ig_apo_get'), igSum('ig_offer')),    color: '#a78bfa' },
+                  { label: '成約率',     value: pct(igSum('ig_seiyaku'), igSum('ig_doin_exec')), color: '#22c55e' },
+                  { label: '全体成約率', value: pct(igSum('ig_seiyaku'), igSum('dm_send')),     color: '#ec4899' },
+                ].map(({ label, value, color }) => (
+                  <div key={label} className="flex justify-between items-center py-0.5">
+                    <span className="text-[10px] text-slate-500">{label}</span>
+                    <span className="text-xs font-bold" style={{ color }}>{value}%</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* ③ 無着地打ち分け */}
         <Card className="bg-slate-900 border-red-900/30 border">
