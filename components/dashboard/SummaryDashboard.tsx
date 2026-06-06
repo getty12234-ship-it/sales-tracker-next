@@ -182,13 +182,9 @@ export function SummaryDashboard() {
           const val = totals[key] || 0
           const goal = goals[key] || 0
           const budget = budgets[key] || 0
-          const rate = pct(val, goal)
-          const daily = passed > 0 ? (val / passed).toFixed(1) : '0'
-          const needPerDay = remaining > 0 ? Math.ceil(Math.max(0, goal - val) / remaining) : 0
-          // ペース（予算あり→予算ベース、なし→目標ベース）
-          const paceBase = budget > 0 ? budget : goal
-          const cumTarget = paceBase > 0 ? cumulativeBudgetTarget(paceBase, ym) : 0
-          const reqDaily = paceBase > 0 ? requiredDailyFromNow(paceBase, val, ym) : 0
+          // 今日までに到達しておきたい累積（予算ペース・目標ペース）
+          const budgetPaceTarget = budget > 0 ? cumulativeBudgetTarget(budget, ym) : 0
+          const goalPaceTarget = goal > 0 ? cumulativeBudgetTarget(goal, ym) : 0
 
           return (
             <KpiCard
@@ -197,13 +193,10 @@ export function SummaryDashboard() {
               value={val}
               goal={goal}
               budget={budget}
-              rate={rate}
               color={color}
-              daily={daily}
-              needPerDay={needPerDay}
               important={important}
-              cumulativeTarget={cumTarget}
-              requiredDailyBudget={reqDaily}
+              budgetPaceTarget={budgetPaceTarget}
+              goalPaceTarget={goalPaceTarget}
             />
           )
         })}
@@ -529,104 +522,50 @@ function BarWithTooltip({ tooltip, children }: { tooltip: string; children: Reac
 
 // KPIカードコンポーネント
 function KpiCard({
-  label, value, goal, budget, rate, color, daily, needPerDay, important, cumulativeTarget, requiredDailyBudget
+  label, value, goal, budget, color, important, budgetPaceTarget, goalPaceTarget,
 }: {
-  label: string, value: number, goal: number, budget: number, rate: number,
-  color: string, daily: string, needPerDay: number, important: boolean,
-  cumulativeTarget: number, requiredDailyBudget: number
+  label: string; value: number; goal: number; budget: number; color: string; important: boolean
+  budgetPaceTarget: number; goalPaceTarget: number
 }) {
-  const progressColor = rate >= 100 ? 'bg-green-500' : rate >= 70 ? 'bg-yellow-400' : 'bg-red-500'
-  const hasBudget = budget > 0
-  const paceBase = hasBudget ? budget : goal
-  const budgetRate = hasBudget ? Math.round((value / budget) * 100) : 0
-  // ペース判定（今日の累積目標に対して進んでいるか）
-  const isOnPace = cumulativeTarget > 0 ? value >= cumulativeTarget : true
-  const paceGap = cumulativeTarget > 0 ? Math.round(value - cumulativeTarget) : 0
-  // ペースバー（今日の累積目標 / 月間目標ベース）
-  const pacePct = paceBase > 0 ? Math.min(100, Math.round((cumulativeTarget / paceBase) * 100)) : 0
+  // バーは「予算・目標の大きい方」を100%として、実績フィル＋2本のペース線（今日ここまで到達しておきたい位置）を重ねる
+  const scaleMax = Math.max(goal, budget, value, 1)
+  const actualPct = Math.min(100, (value / scaleMax) * 100)
+  const budgetLine = budget > 0 ? Math.min(100, (budgetPaceTarget / scaleMax) * 100) : null
+  const goalLine = goal > 0 ? Math.min(100, (goalPaceTarget / scaleMax) * 100) : null
+  const onBudgetPace = budgetPaceTarget <= 0 || value >= budgetPaceTarget
+  const hitTarget = value >= (budget || goal) && (budget || goal) > 0
+  const fillColor = hitTarget ? '#22c55e' : onBudgetPace ? color : '#ef4444'
 
   return (
     <Card className={`bg-slate-900 border-slate-800 ${important ? 'ring-1 ring-indigo-500/30' : ''}`}>
       <CardContent className="p-3">
         <div className="text-xs text-slate-500 mb-1 truncate">{label}</div>
-        <div className="flex items-baseline justify-between mb-2">
+        <div className="flex items-baseline justify-between mb-2.5">
           <span className="text-2xl font-bold" style={{ color }}>{value}</span>
-          <div className="text-right">
-            {hasBudget ? (
-              <>
-                <div className="text-xs text-amber-400">予算{budget}</div>
-                <div className="text-xs text-slate-500">目標{goal}</div>
-              </>
-            ) : (
-              <span className="text-xs text-slate-500">/{goal}</span>
-            )}
+          <div className="text-right text-xs leading-tight">
+            {budget > 0 && <div className="text-amber-400">予算{budget}</div>}
+            {goal > 0 && <div className="text-cyan-400/80">目標{goal}</div>}
           </div>
         </div>
 
-        {/* ① 達成率バー（目標ベース） */}
-        <BarWithTooltip tooltip={`🎯 目標達成率: ${rate}%（実績 ${value} / 目標 ${goal}）`}>
-          <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mb-1 cursor-default">
-            <div
-              className={`h-full rounded-full transition-all ${progressColor}`}
-              style={{ width: `${Math.min(100, rate)}%` }}
-            />
-          </div>
-        </BarWithTooltip>
-
-        {/* ② ペースライン（今日時点の累積目標位置を示すマーカー） */}
-        {cumulativeTarget > 0 && paceBase > 0 && (
-          <BarWithTooltip tooltip={`📅 ペース: 実績 ${value} / 今日の累積目標 ${cumulativeTarget}（黄線）${isOnPace ? ` ▲${paceGap} 先行` : ` ▼${Math.abs(paceGap)} 遅れ`}`}>
-            <div className="relative w-full h-1 bg-slate-800/60 rounded-full overflow-hidden mb-1 cursor-default">
-              {/* 実績バー */}
-              <div
-                className="h-full rounded-full transition-all bg-indigo-500/50"
-                style={{ width: `${Math.min(100, Math.round((value / paceBase) * 100))}%` }}
-              />
-              {/* 今日のペース目標マーカー */}
-              <div
-                className="absolute top-0 w-0.5 h-full bg-yellow-400"
-                style={{ left: `${pacePct}%` }}
-              />
-            </div>
-          </BarWithTooltip>
-        )}
-
-        {/* ③ 予算バー */}
-        {hasBudget && (
-          <BarWithTooltip tooltip={`💰 予算達成率: ${budgetRate}%（実績 ${value} / 予算 ${budget}）`}>
-            <div className="w-full h-1 bg-slate-800/60 rounded-full overflow-hidden mb-1 cursor-default">
-              <div
-                className="h-full rounded-full bg-amber-500/60 transition-all"
-                style={{ width: `${Math.min(100, budgetRate)}%` }}
-              />
-            </div>
-          </BarWithTooltip>
-        )}
-
-        <div className="space-y-0.5">
-          <div className="flex justify-between text-xs">
-            <span className="text-slate-500">{rate}%</span>
-            {hasBudget ? (
-              <span className="text-amber-500 text-[10px]">予算{budgetRate}%</span>
-            ) : needPerDay > 0 ? (
-              <span className="text-amber-400">要{needPerDay}/日</span>
-            ) : null}
-          </div>
-          {/* ペース表示（常時・予算あり/なし問わず） */}
-          {cumulativeTarget > 0 && (
-            <div className="flex justify-between items-center text-[10px] mt-0.5 pt-0.5 border-t border-slate-800">
-              <span className="text-slate-500">
-                今日累積目標: <span className={`font-bold ${isOnPace ? 'text-cyan-400' : 'text-yellow-400'}`}>{cumulativeTarget}</span>
-              </span>
-              {value >= paceBase ? (
-                <span className="text-green-400 font-bold">✓ 達成</span>
-              ) : isOnPace ? (
-                <span className="text-cyan-400">▲{paceGap} 先行</span>
-              ) : (
-                <span className="text-red-400 font-bold">▼{Math.abs(paceGap)} 遅れ</span>
-              )}
-            </div>
+        {/* 1本のバー：実績フィル＋予算ペース線（amber）＋目標ペース線（cyan） */}
+        <div className="relative w-full h-2.5 bg-slate-800 rounded-full overflow-hidden">
+          <div className="h-full rounded-full transition-all" style={{ width: `${actualPct}%`, background: fillColor }} />
+          {budgetLine !== null && (
+            <div className="absolute top-0 h-full w-[2px] bg-amber-400 z-10" style={{ left: `calc(${budgetLine}% - 1px)` }}
+              title={`今日までに到達しておきたい（予算ペース）: ${Math.round(budgetPaceTarget * 10) / 10}`} />
           )}
+          {goalLine !== null && (
+            <div className="absolute top-0 h-full w-[2px] bg-cyan-400 z-10" style={{ left: `calc(${goalLine}% - 1px)` }}
+              title={`今日までに到達しておきたい（目標ペース）: ${Math.round(goalPaceTarget * 10) / 10}`} />
+          )}
+        </div>
+
+        {/* 凡例：線の意味を明示 */}
+        <div className="flex items-center gap-3 mt-1.5 text-[9px] text-slate-500 flex-wrap">
+          <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full" style={{ background: fillColor }} />実績</span>
+          {budget > 0 && <span className="flex items-center gap-1"><span className="inline-block w-[2px] h-2.5 bg-amber-400" />今日の予算ライン</span>}
+          {goal > 0 && <span className="flex items-center gap-1"><span className="inline-block w-[2px] h-2.5 bg-cyan-400" />今日の目標ライン</span>}
         </div>
       </CardContent>
     </Card>
