@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAppState } from '@/lib/store'
 import { getDailyMetrics, getWeeklyReview, upsertWeeklyReview, getSettings, getStCases, getInstagramAccounts, getInstagramMetricsByAccounts } from '@/lib/queries'
 import { getWeekDays, pct, getYearMonth, usableDays, getMonthDays, cumulativeBudgetTarget, requiredDailyFromNow, weeklyTarget, weeklyCumulativeTarget } from '@/lib/date-utils'
-import { METRIC_FIELDS, DEFAULT_GOALS, KPI_SUMMARY, IG_FUNNEL } from '@/lib/constants'
+import { METRIC_FIELDS, DEFAULT_GOALS, KPI_SUMMARY, IG_FUNNEL, IG_KPI_SUMMARY, IG_DEFAULT_GOALS } from '@/lib/constants'
 import { PaceRow, PaceLegend } from './PaceBar'
 import { extractBudgets } from '@/lib/supabase'
 import { syncEvents } from './Header'
@@ -229,8 +229,20 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false, monthY
   const wkPace = (monthly: number) => weeklyCumulativeTarget(monthly, weekStart) // 今(今週/先週)ここまでの目安
   const cwBudget = (cw: string) => budgets[cw] || 0
   const cwGoal = (cw: string) => goalVals[cw] || 0
-  const igBud = (ig: string) => (ig ? (rawGoals[`b_${ig}`] ?? 0) : 0)
-  const igGl = (ig: string) => (ig ? (rawGoals[ig] ?? 0) : 0)
+  // IG予算/目標は設定画面が二重プレフィックスで保存（goal=ig_<key> / budget=b_ig_<key>、key例 ig_apo_get）
+  const igBud = (ig: string) => (ig ? (rawGoals[`b_ig_${ig}`] ?? 0) : 0)
+  const igGl = (ig: string) => (ig ? (rawGoals[`ig_${ig}`] ?? 0) : 0)
+  // インスタ単体カード用：カスタム設定 ＞ IGデフォルト目標（DM900等）でフォールバック
+  const igGoalD = (key: string) => {
+    const c = rawGoals[`ig_${key}`]
+    if (c !== undefined && c > 0) return c
+    return IG_DEFAULT_GOALS[key] || 0
+  }
+  const igBudgetD = (key: string) => {
+    const c = rawGoals[`b_ig_${key}`]
+    if (c !== undefined && c > 0) return c
+    return igGoalD(key)
+  }
   const paceWord = readOnly ? '先週' : '今週'
 
   if (!currentMember) {
@@ -335,30 +347,29 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false, monthY
               <div className="flex justify-end pb-1">
                 <PaceLegend paceWord={paceWord} />
               </div>
-              {REVIEW_KPIS.filter(r => r.ig).map(r => {
-                const val = igSum(r.ig)
+              {/* DM送信〜成約までフルファネルをバー表示（DMなど集客もバー化）。目標は設定＞IGデフォルト */}
+              {IG_KPI_SUMMARY.map(k => {
+                const val = igSum(k.key)
+                const mb = igBudgetD(k.key)
+                const mg = igGoalD(k.key)
                 return (
                   <PaceRow
-                    key={r.ig}
-                    label={r.label}
+                    key={k.key}
+                    label={k.label}
                     value={val}
-                    budget={wkTgt(igBud(r.ig))}
-                    goal={wkTgt(igGl(r.ig))}
-                    budgetPace={wkPace(igBud(r.ig))}
-                    goalPace={wkPace(igGl(r.ig))}
-                    color={r.color}
-                    important={r.important}
+                    budget={wkTgt(mb)}
+                    goal={wkTgt(mg)}
+                    budgetPace={wkPace(mb)}
+                    goalPace={wkPace(mg)}
+                    color={k.color}
+                    important={k.important}
                   />
                 )
               })}
-              {/* 集客の土台（予算対象外）＋転換率 */}
-              <div className="pt-2 mt-1 border-t border-slate-800/60 flex items-center gap-3 text-[10px] text-slate-500 flex-wrap">
-                <span>DM送信 <span className="text-slate-300 font-bold">{igSum('dm_send')}</span></span>
-                <span>→ 返信 <span className="text-slate-300 font-bold">{igSum('dm_reply')}</span></span>
-                <span className="text-sky-400">返信率 {pct(igSum('dm_reply'), igSum('dm_send'))}%</span>
-              </div>
-              <div className="pt-1 grid grid-cols-2 gap-x-3 gap-y-0.5">
+              {/* 転換率（補助指標） */}
+              <div className="pt-2 mt-1 border-t border-slate-800/60 grid grid-cols-2 gap-x-3 gap-y-0.5">
                 {[
+                  { label: 'DM返信率',   value: pct(igSum('dm_reply'),   igSum('dm_send')),      color: '#38bdf8' },
                   { label: 'アポ率',     value: pct(igSum('ig_apo_get'), igSum('ig_offer')),     color: '#a78bfa' },
                   { label: '成約率',     value: pct(igSum('ig_seiyaku'), igSum('ig_doin_exec')), color: '#22c55e' },
                   { label: '全体成約率', value: pct(igSum('ig_seiyaku'), igSum('dm_send')),      color: '#ec4899' },
