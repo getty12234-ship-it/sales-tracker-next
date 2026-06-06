@@ -1,13 +1,16 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useState, useEffect, useRef } from 'react'
 import { useAppState } from '@/lib/store'
-import { getDailyMetrics, getSettings, getInstagramAccounts, getInstagramMonthlyMetrics } from '@/lib/queries'
+import { getDailyMetrics, getSettings, getInstagramAccounts, getInstagramMonthlyMetrics, upsertMonthlyGoal } from '@/lib/queries'
 import { getMonthDays, pct, remainingWorkdays, passedWorkdays, cumulativeBudgetTarget, requiredDailyFromNow } from '@/lib/date-utils'
 import { DEFAULT_GOALS, METRIC_FIELDS, IG_METRIC_FIELDS } from '@/lib/constants'
 import type { DailyMetrics, InstagramMetrics } from '@/lib/supabase'
 import { extractBudgets } from '@/lib/supabase'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Textarea } from '@/components/ui/textarea'
+import { syncEvents } from './Header'
 import { Layers, Calendar } from 'lucide-react'
 
 // ===== 合算定義（その他⇄インスタの対応キー。インスタに対応がないものは other のみ） =====
@@ -49,6 +52,27 @@ export function UnifiedSummary() {
     },
     enabled: accounts.length > 0,
   })
+
+  const queryClient = useQueryClient()
+  // 今月の目標・予算メモ（自由記述）
+  const savedMonthlyGoal = ((settings?.monthly_goals as Record<string, string>) || {})[ym] || ''
+  const [goalText, setGoalText] = useState('')
+  const goalTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => { setGoalText(savedMonthlyGoal) }, [savedMonthlyGoal, ym])
+  const { mutate: saveGoal } = useMutation({
+    mutationFn: (text: string) => upsertMonthlyGoal(currentMember!.id, ym, text),
+    onMutate: () => syncEvents.emit('saving'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', currentMember?.id] })
+      syncEvents.emit('saved'); setTimeout(() => syncEvents.emit('idle'), 2000)
+    },
+    onError: () => syncEvents.emit('error'),
+  })
+  const handleGoalChange = (text: string) => {
+    setGoalText(text)
+    if (goalTimer.current) clearTimeout(goalTimer.current)
+    goalTimer.current = setTimeout(() => saveGoal(text), 700)
+  }
 
   if (!currentMember) {
     return <div className="flex items-center justify-center h-64 text-slate-500">メンバーを選択してください</div>
@@ -105,6 +129,24 @@ export function UnifiedSummary() {
           経過 <span className="text-slate-200 font-semibold">{passed}</span>日 / 残り <span className="text-slate-200 font-semibold">{remaining}</span>日
         </div>
       </div>
+
+      {/* 今月の目標・予算メモ（自由記述） */}
+      <Card className="bg-slate-900 border-slate-800 border-l-2 border-l-indigo-500/60">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
+            🎯 今月の目標・予算メモ
+            <span className="text-xs font-normal text-slate-500">{ym.replace('-', '年')}月・自由記述</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Textarea
+            className="bg-slate-950 border-slate-700 text-slate-200 text-sm min-h-24 resize-y leading-relaxed"
+            value={goalText}
+            onChange={e => handleGoalChange(e.target.value)}
+            placeholder={'今月の目標・予算・狙いを自由に記入...\n例）成約予算3件／アポ獲得50件・実施30件\n　　売上目標◯◯円。今月のテーマは「テスクロ完走率UP」'}
+          />
+        </CardContent>
+      </Card>
 
       {/* ① 今月の現状＆ペース（合算）— 今この瞬間「1日あたり何本やれば予算に届くか」が分かる表 */}
       <Card className="bg-slate-900 border-slate-800">
