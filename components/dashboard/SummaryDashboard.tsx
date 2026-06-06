@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect, useRef } from 'react'
 import { useAppState } from '@/lib/store'
-import { getDailyMetrics, getSettings, getStCases, upsertStCase, deleteStCase, getWeeklyReviews, upsertMonthlyGoal } from '@/lib/queries'
+import { getDailyMetrics, getSettings, getStCases, upsertStCase, deleteStCase, getWeeklyReviews, upsertMonthlyGoal, getInstagramAccounts, getInstagramMetricsByAccounts } from '@/lib/queries'
 import { getMonthDays, currentYearMonth, pct, remainingWorkdays, passedWorkdays, totalWorkdays, usableDays, dailyBudgetRate, cumulativeBudgetTarget, requiredDailyFromNow, endOfMonth } from '@/lib/date-utils'
 import { KPI_SUMMARY, DEFAULT_GOALS, METRIC_FIELDS } from '@/lib/constants'
 import type { DailyMetrics, StCase } from '@/lib/supabase'
@@ -96,6 +96,19 @@ export function SummaryDashboard() {
     enabled: !!currentMember,
   })
 
+  // インスタ実績（統合KPI表用：メンバーの全アカウントを月次集計）
+  const { data: igAccounts = [] } = useQuery({
+    queryKey: ['ig_accounts', currentMember?.id],
+    queryFn: () => getInstagramAccounts(currentMember!.id),
+    enabled: !!currentMember,
+  })
+  const igAccountIds = igAccounts.map(a => a.id)
+  const { data: igMonthMetrics = [] } = useQuery({
+    queryKey: ['ig_metrics_member_month', currentMember?.id, ym, igAccountIds.join(',')],
+    queryFn: () => getInstagramMetricsByAccounts(igAccountIds, monthDays[0], monthDays[monthDays.length - 1]),
+    enabled: !!currentMember && igAccountIds.length > 0,
+  })
+
   // 今月の目標・予算メモ（自由記述）
   const savedMonthlyGoal = ((settings?.monthly_goals as Record<string, string>) || {})[ym] || ''
   const [goalText, setGoalText] = useState('')
@@ -127,10 +140,16 @@ export function SummaryDashboard() {
     )
   }
 
-  // 月間合計
+  // 月間合計（CW）
   const totals: Record<string, number> = {}
   METRIC_FIELDS.forEach(({ key }) => {
     totals[key] = metrics.reduce((sum, m) => sum + ((m[key as keyof DailyMetrics] as number) || 0), 0)
+  })
+
+  // 月間合計（インスタ）
+  const igTotals: Record<string, number> = {}
+  ;['ig_apo_get', 'ig_apo_exec', 'ig_offer', 'ig_doin_get', 'ig_doin_exec', 'ig_seiyaku'].forEach(k => {
+    igTotals[k] = igMonthMetrics.reduce((s, m) => s + (Number((m as Record<string, unknown>)[k]) || 0), 0)
   })
 
   const rawGoals = (settings?.goals as Record<string, number>) || {}
@@ -214,6 +233,66 @@ export function SummaryDashboard() {
             onChange={e => handleGoalChange(e.target.value)}
             placeholder={'今月の目標・予算・狙いを自由に記入...\n例）成約予算3件／アポ獲得50件・実施30件\n　　売上目標◯◯円。今月のテーマは「テスクロ完走率UP」'}
           />
+        </CardContent>
+      </Card>
+
+      {/* 統合KPI表（合算・チャネル別）※アポ獲得以降を 合算/インスタ/CW で並べる */}
+      <Card className="bg-slate-900 border-slate-800">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
+            📊 統合KPI（合算・チャネル別）
+            <span className="text-xs font-normal text-slate-500">実績 / 予算（{ym.replace('-', '年')}月）</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0 overflow-x-auto">
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr className="border-b border-slate-800 text-xs text-slate-500">
+                <th className="text-left px-4 py-2 font-semibold whitespace-nowrap">KPI</th>
+                <th className="text-center px-3 py-2 font-semibold whitespace-nowrap text-pink-300">合算（統合）</th>
+                <th className="text-center px-3 py-2 font-semibold whitespace-nowrap">📷 インスタ</th>
+                <th className="text-center px-3 py-2 font-semibold whitespace-nowrap">💼 クラウドワークス</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                { label: 'アポ獲得', cw: 'apo_get',     ig: 'ig_apo_get',   igg: 'ig_ig_apo_get' },
+                { label: 'アポ実施', cw: 'apo_exec',    ig: 'ig_apo_exec',  igg: 'ig_ig_apo_exec' },
+                { label: 'オファー', cw: 'offer',       ig: 'ig_offer',     igg: 'ig_ig_offer' },
+                { label: '動員獲得', cw: 'doin_get',    ig: 'ig_doin_get',  igg: 'ig_ig_doin_get' },
+                { label: '動員実施', cw: 'doin_exec',   ig: 'ig_doin_exec', igg: 'ig_ig_doin_exec' },
+                { label: '面談実施', cw: 'mendan_exec', ig: '',             igg: '' },
+                { label: '成約',     cw: 'seiyaku',     ig: 'ig_seiyaku',   igg: 'ig_ig_seiyaku', important: true },
+              ].map(r => {
+                const cwA = totals[r.cw] || 0
+                const cwT = budgets[r.cw] || goals[r.cw] || 0
+                const igA = r.ig ? (igTotals[r.ig] || 0) : 0
+                const igT = r.igg ? (budgets[r.igg] || rawGoals[r.igg] || 0) : 0
+                const tA = cwA + igA
+                const tT = cwT + igT
+                const fmtCell = (a: number, t: number, hasChannel: boolean, emphasis = false) => {
+                  if (!hasChannel) return <span className="text-slate-700">—</span>
+                  const ok = t > 0 && a >= t
+                  const color = ok ? '#22c55e' : emphasis ? '#f9a8d4' : '#e2e8f0'
+                  return (
+                    <>
+                      <span className={`font-bold ${emphasis ? 'text-base' : ''}`} style={{ color }}>{a}</span>
+                      {t > 0 && <span className="text-slate-500 text-[11px]"> / {t}</span>}
+                    </>
+                  )
+                }
+                return (
+                  <tr key={r.label} className={`border-b border-slate-800/40 hover:bg-slate-800/20 ${r.important ? 'bg-slate-800/30' : ''}`}>
+                    <td className={`px-4 py-2 font-medium whitespace-nowrap ${r.important ? 'text-green-300' : 'text-slate-300'}`}>{r.label}</td>
+                    <td className="text-center px-3 py-2 whitespace-nowrap bg-pink-950/10">{fmtCell(tA, tT, true, true)}</td>
+                    <td className="text-center px-3 py-2 whitespace-nowrap">{fmtCell(igA, igT, !!r.ig)}</td>
+                    <td className="text-center px-3 py-2 whitespace-nowrap">{fmtCell(cwA, cwT, true)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+          <div className="px-4 py-2 text-[10px] text-slate-600">数字＝今月の実績／予算（絶対達成ライン）。緑＝予算達成。合算列＝インスタ＋CW。面談実施はCWのみ。</div>
         </CardContent>
       </Card>
 
