@@ -225,8 +225,8 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false, monthY
   })
 
   // ===== 週次バー表示用：月の予算/目標を平日按分して「この週の予算/目標」に変換 =====
-  const wkTgt = (monthly: number) => weeklyTarget(monthly, weekStart, ym)       // この週フルの目安
-  const wkPace = (monthly: number) => weeklyCumulativeTarget(monthly, weekStart, ym) // 今(今週/先週)ここまでの目安
+  const wkTgt = (monthly: number) => weeklyTarget(monthly, weekStart)       // この週フルの目安
+  const wkPace = (monthly: number) => weeklyCumulativeTarget(monthly, weekStart) // 今(今週/先週)ここまでの目安
   const cwBudget = (cw: string) => budgets[cw] || 0
   const cwGoal = (cw: string) => goalVals[cw] || 0
   const igBud = (ig: string) => (ig ? (rawGoals[`b_${ig}`] ?? 0) : 0)

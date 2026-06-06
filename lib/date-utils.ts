@@ -191,39 +191,39 @@ export function cumulativeBudgetTarget(budget: number, yearMonth: string): numbe
 }
 
 // ===== 週次ペース計算（試作シートのバー表示用） =====
-// 考え方: 月の予算/目標を「平日数」で按分して週に割り当てる。
-//   週の予算 = 月予算 × (その週がその月に持つ平日数 / 月の総平日数)
-//   → 全週を足すと月予算に一致する。月をまたぐ週は ym 側の平日だけを数える。
+// 考え方: 月の予算/目標を「平日(月〜金)1日あたり」に直し、その週の平日数を掛ける。
+//   週の予算 = (月予算 / 月の総平日数) × その週の平日数
+//   - 基準月は週の月曜日が属する月（月またぎでも安定。先週が先月でも予算ラインが消えない）
+//   - 進行中の週は「今日以前の平日数」だけ掛けて“今ここまで”の目印にする
 
-// 指定週(月〜日)のうち yearMonth に属する平日(月〜金)の YYYY-MM-DD を返す
-function weekdaysOfWeekInMonth(weekStart: string, yearMonth: string): string[] {
+// 指定週(月〜日)の平日(月〜金)の YYYY-MM-DD を返す
+function weekdaysOfWeek(weekStart: string): string[] {
   return getWeekDays(weekStart).filter(ds => {
-    if (getYearMonth(ds) !== yearMonth) return false
     const dow = parseDateLocal(ds).getDay()
     return dow !== 0 && dow !== 6
   })
 }
 
-// 週の予算(または目標) = 月の値 × (週内・月内の平日数 / 月の総平日数)
-export function weeklyTarget(monthlyValue: number, weekStart: string, yearMonth: string): number {
+// 週の予算(または目標) = 日当たり(月基準) × その週の平日数
+export function weeklyTarget(monthlyValue: number, weekStart: string): number {
   if (!monthlyValue) return 0
-  const monthWd = totalWorkdays(yearMonth)
+  const monthWd = totalWorkdays(getYearMonth(weekStart))
   if (!monthWd) return 0
-  const wd = weekdaysOfWeekInMonth(weekStart, yearMonth).length
-  return Math.round((monthlyValue * wd / monthWd) * 10) / 10
+  const wd = weekdaysOfWeek(weekStart).length
+  return Math.round((monthlyValue / monthWd) * wd * 10) / 10
 }
 
-// 週の「今日までに到達しておきたい」ペース
-//   = 月の値 × (週内・月内で今日以前の平日数 / 月の総平日数)
-//   完了済みの週 → 週内の全平日が今日以前 → weeklyTarget と一致（その週フルの目安）
+// 週の「今(今週)/その週(先週)ここまでに到達しておきたい」ペース
+//   = 日当たり(月基準) × 週内で今日以前の平日数
+//   完了済みの週 → 週の全平日が今日以前 → weeklyTarget と一致（その週フルの目安）
 //   進行中の週   → 今日までの平日分だけ
-export function weeklyCumulativeTarget(monthlyValue: number, weekStart: string, yearMonth: string): number {
+export function weeklyCumulativeTarget(monthlyValue: number, weekStart: string): number {
   if (!monthlyValue) return 0
-  const monthWd = totalWorkdays(yearMonth)
+  const monthWd = totalWorkdays(getYearMonth(weekStart))
   if (!monthWd) return 0
   const todayStr = today()
-  const wd = weekdaysOfWeekInMonth(weekStart, yearMonth).filter(ds => ds <= todayStr).length
-  return Math.round((monthlyValue * wd / monthWd) * 10) / 10
+  const wd = weekdaysOfWeek(weekStart).filter(ds => ds <= todayStr).length
+  return Math.round((monthlyValue / monthWd) * wd * 10) / 10
 }
 
 // 今から必要な日当たり = (予算 - 達成数) / 残り使える日数
