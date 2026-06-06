@@ -190,6 +190,42 @@ export function cumulativeBudgetTarget(budget: number, yearMonth: string): numbe
   return Math.round((budget / days) * elapsed * 10) / 10
 }
 
+// ===== 週次ペース計算（試作シートのバー表示用） =====
+// 考え方: 月の予算/目標を「平日数」で按分して週に割り当てる。
+//   週の予算 = 月予算 × (その週がその月に持つ平日数 / 月の総平日数)
+//   → 全週を足すと月予算に一致する。月をまたぐ週は ym 側の平日だけを数える。
+
+// 指定週(月〜日)のうち yearMonth に属する平日(月〜金)の YYYY-MM-DD を返す
+function weekdaysOfWeekInMonth(weekStart: string, yearMonth: string): string[] {
+  return getWeekDays(weekStart).filter(ds => {
+    if (getYearMonth(ds) !== yearMonth) return false
+    const dow = parseDateLocal(ds).getDay()
+    return dow !== 0 && dow !== 6
+  })
+}
+
+// 週の予算(または目標) = 月の値 × (週内・月内の平日数 / 月の総平日数)
+export function weeklyTarget(monthlyValue: number, weekStart: string, yearMonth: string): number {
+  if (!monthlyValue) return 0
+  const monthWd = totalWorkdays(yearMonth)
+  if (!monthWd) return 0
+  const wd = weekdaysOfWeekInMonth(weekStart, yearMonth).length
+  return Math.round((monthlyValue * wd / monthWd) * 10) / 10
+}
+
+// 週の「今日までに到達しておきたい」ペース
+//   = 月の値 × (週内・月内で今日以前の平日数 / 月の総平日数)
+//   完了済みの週 → 週内の全平日が今日以前 → weeklyTarget と一致（その週フルの目安）
+//   進行中の週   → 今日までの平日分だけ
+export function weeklyCumulativeTarget(monthlyValue: number, weekStart: string, yearMonth: string): number {
+  if (!monthlyValue) return 0
+  const monthWd = totalWorkdays(yearMonth)
+  if (!monthWd) return 0
+  const todayStr = today()
+  const wd = weekdaysOfWeekInMonth(weekStart, yearMonth).filter(ds => ds <= todayStr).length
+  return Math.round((monthlyValue * wd / monthWd) * 10) / 10
+}
+
 // 今から必要な日当たり = (予算 - 達成数) / 残り使える日数
 export function requiredDailyFromNow(budget: number, achieved: number, yearMonth: string): number {
   const [year, month] = yearMonth.split('-').map(Number)

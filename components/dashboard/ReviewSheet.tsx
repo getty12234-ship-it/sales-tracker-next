@@ -3,8 +3,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAppState } from '@/lib/store'
 import { getDailyMetrics, getWeeklyReview, upsertWeeklyReview, getSettings, getStCases, getInstagramAccounts, getInstagramMetricsByAccounts } from '@/lib/queries'
-import { getWeekDays, pct, getYearMonth, usableDays, getMonthDays, cumulativeBudgetTarget, requiredDailyFromNow } from '@/lib/date-utils'
+import { getWeekDays, pct, getYearMonth, usableDays, getMonthDays, cumulativeBudgetTarget, requiredDailyFromNow, weeklyTarget, weeklyCumulativeTarget } from '@/lib/date-utils'
 import { METRIC_FIELDS, DEFAULT_GOALS, KPI_SUMMARY, IG_FUNNEL } from '@/lib/constants'
+import { PaceRow, PaceLegend } from './PaceBar'
 import { extractBudgets } from '@/lib/supabase'
 import { syncEvents } from './Header'
 import { useEffect, useState, useRef } from 'react'
@@ -60,6 +61,16 @@ function migrateCauseActions(raw: any[]): CauseGroup[] {
 
 const CAUSE_COLORS = ['#eab308', '#3b82f6', '#8b5cf6', '#22c55e', '#f97316', '#ec4899']
 const CAUSE_LABELS = ['1番', '2番', '3番', '4番', '5番', '6番']
+
+// 統合実績／その他／インスタ で共通のKPI行（バー表示用）
+const REVIEW_KPIS: { label: string; cw: string; ig: string; color: string; important: boolean }[] = [
+  { label: 'アポ獲得', cw: 'apo_get',    ig: 'ig_apo_get',   color: '#3b82f6', important: false },
+  { label: 'アポ実施', cw: 'apo_exec',   ig: 'ig_apo_exec',  color: '#06b6d4', important: true },
+  { label: '動員獲得', cw: 'doin_get',   ig: 'ig_doin_get',  color: '#a855f7', important: false },
+  { label: '動員実施', cw: 'doin_exec',  ig: 'ig_doin_exec', color: '#8b5cf6', important: true },
+  { label: '面談実施', cw: 'mendan_exec', ig: '',            color: '#6366f1', important: true },
+  { label: '成約',     cw: 'seiyaku',    ig: 'ig_seiyaku',   color: '#22c55e', important: true },
+]
 
 interface ReviewSheetProps {
   weekStart?: string
@@ -213,6 +224,15 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false, monthY
     monthTotals[key] = monthMetrics.reduce((sum, m) => sum + ((m[key as keyof DailyMetrics] as number) || 0), 0)
   })
 
+  // ===== 週次バー表示用：月の予算/目標を平日按分して「この週の予算/目標」に変換 =====
+  const wkTgt = (monthly: number) => weeklyTarget(monthly, weekStart, ym)       // この週フルの目安
+  const wkPace = (monthly: number) => weeklyCumulativeTarget(monthly, weekStart, ym) // 今(今週/先週)ここまでの目安
+  const cwBudget = (cw: string) => budgets[cw] || 0
+  const cwGoal = (cw: string) => goalVals[cw] || 0
+  const igBud = (ig: string) => (ig ? (rawGoals[`b_${ig}`] ?? 0) : 0)
+  const igGl = (ig: string) => (ig ? (rawGoals[ig] ?? 0) : 0)
+  const paceWord = readOnly ? '先週' : '今週'
+
   if (!currentMember) {
     return <div className="text-slate-500 text-sm p-8 text-center">メンバーを選択してください</div>
   }
@@ -222,87 +242,67 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false, monthY
       {/* ===== 左列: KPI・実績・内訳 ===== */}
       <div className="xl:col-span-1 space-y-3">
 
-        {/* ① 統合実績（その他＋インスタ・月次） */}
+        {/* ① 統合実績（その他＋インスタ・今週/先週・バー表示） */}
         <Card className="bg-slate-900 border-slate-800">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
-              📊 統合実績
-              <span className="text-xs font-normal text-slate-500">{ym.replace('-', '年')}月 その他＋インスタ</span>
-              {readOnly && <span className="text-xs font-normal text-slate-600">（読取専用）</span>}
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
+                📊 統合実績
+                <span className="text-xs font-normal text-slate-500">{paceWord}・その他＋インスタ合算</span>
+              </CardTitle>
+              <PaceLegend paceWord={paceWord} />
+            </div>
           </CardHeader>
-          <CardContent className="p-0 overflow-x-auto">
-            <table className="w-full text-xs border-collapse">
-              <thead>
-                <tr className="border-b border-slate-800 text-[10px] text-slate-500">
-                  <th className="text-left px-3 py-1.5 font-semibold whitespace-nowrap">KPI</th>
-                  <th className="text-right px-2 py-1.5 font-semibold">その他</th>
-                  <th className="text-right px-2 py-1.5 font-semibold">IG</th>
-                  <th className="text-right px-2 py-1.5 font-semibold text-pink-400">合算</th>
-                  <th className="text-right px-2 py-1.5 font-semibold text-amber-400">予算</th>
-                  <th className="text-right px-3 py-1.5 font-semibold">達成</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[
-                  { label: 'アポ獲得', cw: 'apo_get',     ig: 'ig_apo_get' },
-                  { label: 'アポ実施', cw: 'apo_exec',    ig: 'ig_apo_exec',  important: true },
-                  { label: '動員獲得', cw: 'doin_get',    ig: 'ig_doin_get' },
-                  { label: '動員実施', cw: 'doin_exec',   ig: 'ig_doin_exec', important: true },
-                  { label: '面談実施', cw: 'mendan_exec', ig: '',             important: true },
-                  { label: '成約',     cw: 'seiyaku',     ig: 'ig_seiyaku',   important: true },
-                ].map(r => {
-                  const o = monthTotals[r.cw] || 0
-                  const i = r.ig ? igMonthSum(r.ig) : 0
-                  const t = o + i
-                  const bud = (budgets[r.cw] || 0) + (r.ig ? (rawGoals[`b_ig_${r.ig}`] ?? 0) : 0)
-                  const gl = (goalVals[r.cw] || 0) + (r.ig ? (rawGoals[`ig_${r.ig}`] ?? 0) : 0)
-                  const rate = pct(t, gl)
-                  return (
-                    <tr key={r.label} className={`border-b border-slate-800/40 ${r.important ? 'bg-slate-800/30' : ''}`}>
-                      <td className="px-3 py-1.5 font-medium text-slate-300 whitespace-nowrap">{r.important && '★'}{r.label}</td>
-                      <td className="px-2 py-1.5 text-right font-mono text-slate-400">{o}</td>
-                      <td className="px-2 py-1.5 text-right font-mono text-slate-400">{r.ig ? i : '—'}</td>
-                      <td className="px-2 py-1.5 text-right font-mono font-bold text-pink-200">{t}</td>
-                      <td className="px-2 py-1.5 text-right font-mono text-amber-300">{bud || ''}</td>
-                      <td className={`px-3 py-1.5 text-right font-bold ${rate >= 100 ? 'text-green-400' : rate >= 70 ? 'text-yellow-400' : 'text-red-400'}`}>{rate}%</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+          <CardContent className="p-3 pt-0 space-y-0.5">
+            {REVIEW_KPIS.map(r => {
+              const o = totals[r.cw] || 0
+              const i = r.ig ? igSum(r.ig) : 0
+              const val = o + i
+              const monthBudget = cwBudget(r.cw) + igBud(r.ig)
+              const monthGoal = cwGoal(r.cw) + igGl(r.ig)
+              return (
+                <PaceRow
+                  key={r.label}
+                  label={r.label}
+                  value={val}
+                  budget={wkTgt(monthBudget)}
+                  goal={wkTgt(monthGoal)}
+                  budgetPace={wkPace(monthBudget)}
+                  goalPace={wkPace(monthGoal)}
+                  color={r.color}
+                  important={r.important}
+                />
+              )
+            })}
           </CardContent>
         </Card>
 
-        {/* ② 今週の収支実績 */}
+        {/* ② その他の獲得方法（クラウドワークス等・今週/先週・バー表示） */}
         <Card className="bg-slate-900 border-slate-800">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-slate-300">{readOnly ? '先週の' : '今週の'}収支実績</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
+                🗂 その他の獲得方法
+                <span className="text-xs font-normal text-slate-500">{paceWord}・クラウドワークス等</span>
+              </CardTitle>
+              <PaceLegend paceWord={paceWord} />
+            </div>
           </CardHeader>
-          <CardContent className="space-y-1 p-3 pt-0">
-            {[
-              { key: 'apo_get',     label: 'アポ獲得',  color: '#3b82f6' },
-              { key: 'apo_exec',    label: 'アポ実施',  color: '#06b6d4' },
-              { key: 'offer',       label: 'オファー',  color: '#f59e0b' },
-              { key: 'doin_exec',   label: '動員実施',  color: '#8b5cf6' },
-              { key: 'mendan_exec', label: '面談実施',  color: '#6366f1' },
-              { key: 'seiyaku',     label: '成約',      color: '#22c55e' },
-              { key: 'ng',          label: 'NG',        color: '#fb923c' },
-              { key: 'muchaku',     label: '無着地',    color: '#f87171' },
-            ].map(({ key, label, color }) => {
-              const weekVal = totals[key] || 0
-              const monthVal = monthTotals[key] || 0
-              const goal = goalVals[key] || 0
-              const weekShare = goal > 0 ? Math.round((weekVal / goal) * 100) : 0
+          <CardContent className="space-y-0.5 p-3 pt-0">
+            {REVIEW_KPIS.map(r => {
+              const val = totals[r.cw] || 0
               return (
-                <div key={key} className="flex items-center gap-2 py-0.5 border-b border-slate-800/60">
-                  <span className="text-xs w-16 shrink-0" style={{ color }}>{label}</span>
-                  <span className="text-sm font-bold text-slate-100 w-6 text-right shrink-0">{weekVal}</span>
-                  <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                    <div className="h-full rounded-full" style={{ width: `${Math.min(100, weekShare)}%`, background: color }} />
-                  </div>
-                  <span className="text-[10px] text-slate-500 w-12 text-right shrink-0">月計 {monthVal}</span>
-                </div>
+                <PaceRow
+                  key={r.cw}
+                  label={r.label}
+                  value={val}
+                  budget={wkTgt(cwBudget(r.cw))}
+                  goal={wkTgt(cwGoal(r.cw))}
+                  budgetPace={wkPace(cwBudget(r.cw))}
+                  goalPace={wkPace(cwGoal(r.cw))}
+                  color={r.color}
+                  important={r.important}
+                />
               )
             })}
             <div className="pt-2 grid grid-cols-2 gap-x-3 gap-y-0.5">
@@ -335,26 +335,37 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false, monthY
                 </span>
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-1 p-3 pt-0">
-              {IG_FUNNEL.map(({ key, label, color }) => {
-                const val = igSum(key)
-                const share = igTop > 0 ? Math.round((val / igTop) * 100) : 0
+            <CardContent className="space-y-0.5 p-3 pt-0">
+              <div className="flex justify-end pb-1">
+                <PaceLegend paceWord={paceWord} />
+              </div>
+              {REVIEW_KPIS.filter(r => r.ig).map(r => {
+                const val = igSum(r.ig)
                 return (
-                  <div key={key} className="flex items-center gap-2 py-0.5 border-b border-slate-800/60">
-                    <span className="text-xs w-16 shrink-0" style={{ color }}>{label}</span>
-                    <span className="text-sm font-bold text-slate-100 w-6 text-right shrink-0">{val}</span>
-                    <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full" style={{ width: `${Math.min(100, share)}%`, background: color }} />
-                    </div>
-                  </div>
+                  <PaceRow
+                    key={r.ig}
+                    label={r.label}
+                    value={val}
+                    budget={wkTgt(igBud(r.ig))}
+                    goal={wkTgt(igGl(r.ig))}
+                    budgetPace={wkPace(igBud(r.ig))}
+                    goalPace={wkPace(igGl(r.ig))}
+                    color={r.color}
+                    important={r.important}
+                  />
                 )
               })}
-              <div className="pt-2 grid grid-cols-2 gap-x-3 gap-y-0.5">
+              {/* 集客の土台（予算対象外）＋転換率 */}
+              <div className="pt-2 mt-1 border-t border-slate-800/60 flex items-center gap-3 text-[10px] text-slate-500 flex-wrap">
+                <span>DM送信 <span className="text-slate-300 font-bold">{igSum('dm_send')}</span></span>
+                <span>→ 返信 <span className="text-slate-300 font-bold">{igSum('dm_reply')}</span></span>
+                <span className="text-sky-400">返信率 {pct(igSum('dm_reply'), igSum('dm_send'))}%</span>
+              </div>
+              <div className="pt-1 grid grid-cols-2 gap-x-3 gap-y-0.5">
                 {[
-                  { label: 'DM返信率',   value: pct(igSum('dm_reply'),   igSum('dm_send')),     color: '#38bdf8' },
-                  { label: 'アポ率',     value: pct(igSum('ig_apo_get'), igSum('ig_offer')),    color: '#a78bfa' },
+                  { label: 'アポ率',     value: pct(igSum('ig_apo_get'), igSum('ig_offer')),     color: '#a78bfa' },
                   { label: '成約率',     value: pct(igSum('ig_seiyaku'), igSum('ig_doin_exec')), color: '#22c55e' },
-                  { label: '全体成約率', value: pct(igSum('ig_seiyaku'), igSum('dm_send')),     color: '#ec4899' },
+                  { label: '全体成約率', value: pct(igSum('ig_seiyaku'), igSum('dm_send')),      color: '#ec4899' },
                 ].map(({ label, value, color }) => (
                   <div key={label} className="flex justify-between items-center py-0.5">
                     <span className="text-[10px] text-slate-500">{label}</span>

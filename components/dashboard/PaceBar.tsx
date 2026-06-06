@@ -1,0 +1,106 @@
+'use client'
+
+import { Card, CardContent } from '@/components/ui/card'
+
+// =====================================================================
+// 共通「バー表示」部品
+//   実績フィル ＋ 🟡予算ペース線 ＋ 🩵目標ペース線
+//   - 月次でも週次でも同じ見た目（ペース線の中身を呼び出し側が決める）
+//   - budgetPace/goalPace = 「今（今日／今週）ここまで到達しておきたい」位置
+// =====================================================================
+
+const round1 = (n: number) => Math.round(n * 10) / 10
+
+// バー本体（フィル＋2本のペース線）
+export function PaceBarTrack({
+  value, budget, goal, budgetPace, goalPace, color, height = 'h-2.5',
+}: {
+  value: number; budget: number; goal: number
+  budgetPace: number; goalPace: number; color: string; height?: string
+}) {
+  // 予算・目標・実績の最大を100%としてスケール
+  const scaleMax = Math.max(goal, budget, value, 1)
+  const actualPct = Math.min(100, (value / scaleMax) * 100)
+  const budgetLine = budget > 0 ? Math.min(100, (budgetPace / scaleMax) * 100) : null
+  const goalLine = goal > 0 ? Math.min(100, (goalPace / scaleMax) * 100) : null
+  const onBudgetPace = budgetPace <= 0 || value >= budgetPace
+  const hitTarget = (budget || goal) > 0 && value >= (budget || goal)
+  // 達成→緑 / 予算ペース内→本来色 / 遅れ→赤
+  const fillColor = hitTarget ? '#22c55e' : onBudgetPace ? color : '#ef4444'
+
+  return (
+    <div className={`relative w-full ${height} bg-slate-800 rounded-full overflow-hidden`}>
+      <div className="h-full rounded-full transition-all" style={{ width: `${actualPct}%`, background: fillColor }} />
+      {budgetLine !== null && (
+        <div className="absolute top-0 h-full w-[2px] bg-amber-400 z-10" style={{ left: `calc(${budgetLine}% - 1px)` }}
+          title={`今ここまで到達しておきたい（予算ペース）: ${round1(budgetPace)}`} />
+      )}
+      {goalLine !== null && (
+        <div className="absolute top-0 h-full w-[2px] bg-cyan-400 z-10" style={{ left: `calc(${goalLine}% - 1px)` }}
+          title={`今ここまで到達しておきたい（目標ペース）: ${round1(goalPace)}`} />
+      )}
+    </div>
+  )
+}
+
+// 凡例（線の意味）。paceWord = '今日'（月次）/ '今週'（週次）
+export function PaceLegend({ paceWord = '今日' }: { paceWord?: string }) {
+  return (
+    <div className="flex items-center gap-3 text-[9px] text-slate-500 flex-wrap">
+      <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-slate-400" />実績</span>
+      <span className="flex items-center gap-1"><span className="inline-block w-[2px] h-2.5 bg-amber-400" />{paceWord}の予算ライン</span>
+      <span className="flex items-center gap-1"><span className="inline-block w-[2px] h-2.5 bg-cyan-400" />{paceWord}の目標ライン</span>
+    </div>
+  )
+}
+
+// カード版（月次グリッド用）— 大きい数字＋バー＋凡例
+export function PaceCard({
+  label, value, goal, budget, color, important, budgetPace, goalPace, paceWord = '今日', footer,
+}: {
+  label: string; value: number; goal: number; budget: number; color: string; important?: boolean
+  budgetPace: number; goalPace: number; paceWord?: string; footer?: React.ReactNode
+}) {
+  return (
+    <Card className={`bg-slate-900 border-slate-800 ${important ? 'ring-1 ring-indigo-500/30' : ''}`}>
+      <CardContent className="p-3">
+        <div className="text-xs text-slate-500 mb-1 truncate">{label}</div>
+        <div className="flex items-baseline justify-between mb-2.5">
+          <span className="text-2xl font-bold" style={{ color }}>{value}</span>
+          <div className="text-right text-xs leading-tight">
+            {budget > 0 && <div className="text-amber-400">予算{budget}</div>}
+            {goal > 0 && <div className="text-cyan-400/80">目標{goal}</div>}
+          </div>
+        </div>
+        <PaceBarTrack value={value} budget={budget} goal={goal} budgetPace={budgetPace} goalPace={goalPace} color={color} />
+        <div className="mt-1.5">
+          <PaceLegend paceWord={paceWord} />
+        </div>
+        {footer && <div className="mt-1.5 pt-1.5 border-t border-slate-800/60">{footer}</div>}
+      </CardContent>
+    </Card>
+  )
+}
+
+// 行版（リスト用・コンパクト）— [ラベル][実績] [バー] [予算/目標]
+export function PaceRow({
+  label, value, goal, budget, color, important, budgetPace, goalPace,
+}: {
+  label: string; value: number; goal: number; budget: number; color: string; important?: boolean
+  budgetPace: number; goalPace: number
+}) {
+  return (
+    <div className="flex items-center gap-2 py-1 border-b border-slate-800/50">
+      <span className="text-xs w-16 shrink-0 truncate" style={{ color }}>{important && '★'}{label}</span>
+      <span className="text-sm font-bold w-7 text-right text-slate-100 shrink-0">{value}</span>
+      <div className="flex-1 min-w-0">
+        <PaceBarTrack value={value} budget={budget} goal={goal} budgetPace={budgetPace} goalPace={goalPace} color={color} height="h-2" />
+      </div>
+      <span className="text-[10px] text-slate-500 w-24 text-right shrink-0 tabular-nums">
+        <span className="text-amber-400/80">予{budget ? round1(budget) : '—'}</span>
+        {' '}
+        <span className="text-cyan-400/70">目{goal ? round1(goal) : '—'}</span>
+      </span>
+    </div>
+  )
+}

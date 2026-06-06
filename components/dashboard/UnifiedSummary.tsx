@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
 import { syncEvents } from './Header'
 import { Layers, Calendar } from 'lucide-react'
+import { PaceCard } from './PaceBar'
 
 // ===== 合算定義（その他⇄インスタの対応キー。インスタに対応がないものは other のみ） =====
 const UNIFIED_KPIS = [
@@ -110,9 +111,11 @@ export function UnifiedSummary() {
     const goal = (goals[k.key] || 0) + (k.igKey ? igGoal(k.igKey) : 0)
     const paceBase = budget > 0 ? budget : goal
     const cumTarget = paceBase > 0 ? Math.round(cumulativeBudgetTarget(paceBase, ym) * 10) / 10 : 0
+    const budgetPace = budget > 0 ? cumulativeBudgetTarget(budget, ym) : 0
+    const goalPace = goal > 0 ? cumulativeBudgetTarget(goal, ym) : 0
     const reqDaily = paceBase > 0 ? requiredDailyFromNow(paceBase, total, ym) : 0
     const rate = pct(total, goal)
-    return { ...k, otherVal, igVal, total, budget, goal, paceBase, cumTarget, reqDaily, rate }
+    return { ...k, otherVal, igVal, total, budget, goal, paceBase, cumTarget, budgetPace, goalPace, reqDaily, rate }
   })
 
   return (
@@ -148,56 +151,44 @@ export function UnifiedSummary() {
         </CardContent>
       </Card>
 
-      {/* ① 今月の現状＆ペース（合算）— 今この瞬間「1日あたり何本やれば予算に届くか」が分かる表 */}
+      {/* ① 今月の現状＆ペース（合算）— その他の獲得方法と同じバー表示 */}
       <Card className="bg-slate-900 border-slate-800">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
             🎯 今月の現状＆ペース（その他＋インスタの合算）
-            <span className="text-[11px] font-normal text-slate-500">予算に届くには、今から1日あたり何本必要か</span>
+            <span className="text-[11px] font-normal text-slate-500">実績フィルと、今日ここまで到達すべき予算/目標ラインの位置で進捗を見る</span>
           </CardTitle>
         </CardHeader>
-        <CardContent className="p-0 overflow-x-auto">
-          <table className="w-full text-sm border-collapse">
-            <thead>
-              <tr className="border-b border-slate-800 text-xs text-slate-500">
-                <th className="text-left px-4 py-2 font-semibold whitespace-nowrap">KPI</th>
-                <th className="text-right px-3 py-2 font-semibold whitespace-nowrap">今の実績</th>
-                <th className="text-right px-3 py-2 font-semibold whitespace-nowrap text-amber-400">月の予算</th>
-                <th className="text-right px-3 py-2 font-semibold whitespace-nowrap">今日まで<br/>やるべき本数</th>
-                <th className="text-center px-3 py-2 font-semibold whitespace-nowrap">状況</th>
-                <th className="text-right px-4 py-2 font-semibold whitespace-nowrap text-cyan-300">今から<br/>1日あたり必要</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.filter(r => r.pace).map(r => {
-                const onPace = r.cumTarget > 0 ? r.total >= r.cumTarget : true
-                const gap = Math.round((r.total - r.cumTarget) * 10) / 10
-                const done = r.paceBase > 0 && r.total >= r.paceBase
-                const overPace = r.reqDaily > 0 && r.cumTarget > 0 && (r.total < r.cumTarget)
-                return (
-                  <tr key={r.key} className={`border-b border-slate-800/40 hover:bg-slate-800/20 ${r.important ? 'bg-slate-800/30' : ''}`}>
-                    <td className="px-4 py-2 font-semibold whitespace-nowrap" style={{ color: r.color }}>{r.important && '★ '}{r.label}</td>
-                    <td className="px-3 py-2 text-right font-bold font-mono text-slate-100">{r.total}</td>
-                    <td className="px-3 py-2 text-right font-mono text-amber-300">{r.budget || <span className="text-slate-600">未設定</span>}</td>
-                    <td className="px-3 py-2 text-right font-mono text-slate-300">{r.cumTarget > 0 ? r.cumTarget : '—'}</td>
-                    <td className="px-3 py-2 text-center whitespace-nowrap">
-                      {r.paceBase === 0 ? <span className="text-slate-600">—</span>
-                        : done ? <span className="text-green-400 font-bold text-xs">✓ 達成</span>
-                        : onPace ? <span className="text-cyan-400 text-xs">▲ {gap} 先行</span>
-                        : <span className="text-red-400 font-bold text-xs">▼ {Math.abs(gap)} 不足</span>}
-                    </td>
-                    <td className="px-4 py-2 text-right whitespace-nowrap">
+        <CardContent>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            {rows.filter(r => r.pace).map(r => {
+              const done = r.paceBase > 0 && r.total >= r.paceBase
+              return (
+                <PaceCard
+                  key={r.key}
+                  label={r.label}
+                  value={r.total}
+                  goal={r.goal}
+                  budget={r.budget}
+                  color={r.color}
+                  important={r.important}
+                  budgetPace={r.budgetPace}
+                  goalPace={r.goalPace}
+                  paceWord="今日"
+                  footer={
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="text-slate-500">今から必要</span>
                       {done ? <span className="text-green-400 font-bold">完了</span>
-                        : r.reqDaily > 0 ? <span className={`font-bold ${overPace ? 'text-red-300' : 'text-cyan-300'}`}>{r.reqDaily}<span className="text-[11px] text-slate-500"> 本/日</span></span>
+                        : r.reqDaily > 0 ? <span className="text-cyan-300 font-bold">{r.reqDaily}<span className="text-slate-500"> 本/日</span></span>
                         : <span className="text-slate-600">—</span>}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-          <div className="px-4 py-2 text-[10px] text-slate-600 leading-relaxed">
-            「今日までやるべき本数」＝予算ペースで今日時点で到達しておきたい数。「今から1日あたり必要」＝残り営業日で予算に届かせるのに毎日必要な本数。★＝重要KPI。
+                    </div>
+                  }
+                />
+              )
+            })}
+          </div>
+          <div className="mt-2 text-[10px] text-slate-600 leading-relaxed">
+            🟡今日の予算ライン＝予算ペースで今日到達しておきたい位置。🩵今日の目標ライン＝目標ペースで今日到達しておきたい位置。「今から必要」＝残り営業日で予算に届かせるのに毎日必要な本数。
           </div>
         </CardContent>
       </Card>
