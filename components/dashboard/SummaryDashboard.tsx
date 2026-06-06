@@ -348,7 +348,7 @@ export function SummaryDashboard() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-indigo-400" />
-              週別推移（全KPI）
+              週別推移（成約までの主要KPI）
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -361,7 +361,8 @@ export function SummaryDashboard() {
                   labelStyle={{ color: '#e2e8f0' }}
                 />
                 <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
-                {KPI_SUMMARY.map(({ key, label, color }) => (
+                {/* 多線で読めなくなるため、成果に直結する主要KPI（アポ実施/動員実施/面談実施/成約）だけに絞る */}
+                {KPI_SUMMARY.filter(k => ['apo_exec', 'doin_exec', 'mendan_exec', 'seiyaku'].includes(k.key)).map(({ key, label, color }) => (
                   <Line
                     key={key}
                     type="monotone"
