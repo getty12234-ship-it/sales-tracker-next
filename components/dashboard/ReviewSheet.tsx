@@ -14,7 +14,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Plus, Trash2 } from 'lucide-react'
 import type { DailyMetrics } from '@/lib/supabase'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 
 // ホバーツールチップ付きバー（SummaryDashboard と共通ロジック）
 function BarWithTooltip({ tooltip, children }: { tooltip: string; children: React.ReactNode }) {
@@ -126,6 +125,15 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false, monthY
   const igFollowers = igAccounts.reduce((s, a) => s + (a.cur_followers || 0), 0)
   const igTop = igSum('dm_send')
 
+  // 統合実績用：インスタの月次集計
+  const monthDaysIg = getMonthDays(ym)
+  const { data: igMonthMetrics = [] } = useQuery({
+    queryKey: ['ig_metrics_member_month', currentMember?.id, ym, igAccountIds.join(',')],
+    queryFn: () => getInstagramMetricsByAccounts(igAccountIds, monthDaysIg[0], monthDaysIg[monthDaysIg.length - 1]),
+    enabled: !!currentMember && igAccountIds.length > 0,
+  })
+  const igMonthSum = (key: string) => igMonthMetrics.reduce((s, m) => s + igNum((m as Record<string, unknown>)[key]), 0)
+
   const { mutateAsync: save } = useMutation({
     mutationFn: upsertWeeklyReview,
     onSuccess: (data) => {
@@ -214,92 +222,55 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false, monthY
       {/* ===== 左列: KPI・実績・内訳 ===== */}
       <div className="xl:col-span-1 space-y-3">
 
-        {/* ① 月次KPIサマリー */}
+        {/* ① 統合実績（その他＋インスタ・月次） */}
         <Card className="bg-slate-900 border-slate-800">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
-              📊 月次KPI実績
-              <span className="text-xs font-normal text-slate-500">{ym.replace('-', '年')}月</span>
-              {readOnly && <span className="text-xs font-normal text-slate-600">（読み取り専用）</span>}
+              📊 統合実績
+              <span className="text-xs font-normal text-slate-500">{ym.replace('-', '年')}月 その他＋インスタ</span>
+              {readOnly && <span className="text-xs font-normal text-slate-600">（読取専用）</span>}
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-3 pt-0">
-            <div className="grid grid-cols-3 gap-1.5">
-              {KPI_SUMMARY.map(({ key, label, color, important }) => {
-                const val = monthTotals[key] || 0
-                const budget = budgets[key] || 0
-                const goal = goalVals[key] || 0
-                const rate = pct(val, goal)
-                const progressColor = rate >= 100 ? '#22c55e' : rate >= 70 ? '#eab308' : '#ef4444'
-                // ペース（予算あり→予算ベース、なし→目標ベース）
-                const paceBase = budget > 0 ? budget : goal
-                const cumTarget = paceBase > 0 ? cumulativeBudgetTarget(paceBase, ym) : 0
-                const reqDaily = paceBase > 0 ? requiredDailyFromNow(paceBase, val, ym) : 0
-                const isOnTrack = cumTarget > 0 ? val >= cumTarget : true
-                const paceGap = cumTarget > 0 ? Math.round(val - cumTarget) : 0
-                const budgetRate = budget > 0 ? Math.round((val / budget) * 100) : 0
-                return (
-                  <div key={key} className={`rounded-lg p-2 ${important ? 'bg-slate-800 ring-1 ring-indigo-500/20' : 'bg-slate-800/50'}`}>
-                    <div className="text-[10px] text-slate-500 truncate mb-0.5">{label}</div>
-                    <div className="text-lg font-bold leading-tight" style={{ color }}>{val}</div>
-                    {budget > 0 ? (
-                      <div className="text-[10px] leading-tight">
-                        <span className="text-amber-400">予{budget}</span>
-                        <span className="text-slate-600 ml-0.5">目{goal}</span>
-                      </div>
-                    ) : (
-                      <div className="text-[10px] text-slate-600">目標 {goal}</div>
-                    )}
-                    {/* ① 目標達成率バー */}
-                    <BarWithTooltip tooltip={`🎯 目標達成率: ${rate}%（実績 ${val} / 目標 ${goal}）`}>
-                      <div className="w-full h-1 bg-slate-700 rounded-full mt-1.5 overflow-hidden cursor-default">
-                        <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, rate)}%`, background: progressColor }} />
-                      </div>
-                    </BarWithTooltip>
-                    {/* ② ペースバー（黄線 = 今日の累積目標位置） */}
-                    {cumTarget > 0 && paceBase > 0 && (
-                      <BarWithTooltip tooltip={`📅 ペース: 実績 ${val} / 今日の累積目標 ${cumTarget}（黄線）${isOnTrack ? ` ▲${paceGap} 先行` : ` ▼${Math.abs(paceGap)} 遅れ`}`}>
-                        <div className="relative w-full h-1 bg-slate-800/60 rounded-full overflow-hidden mt-0.5 cursor-default">
-                          <div className="h-full rounded-full bg-indigo-500/50" style={{ width: `${Math.min(100, Math.round((val / paceBase) * 100))}%` }} />
-                          <div className="absolute top-0 w-0.5 h-full bg-yellow-400" style={{ left: `${Math.min(100, Math.round((cumTarget / paceBase) * 100))}%` }} />
-                        </div>
-                      </BarWithTooltip>
-                    )}
-                    {/* ③ 予算バー */}
-                    {budget > 0 && (
-                      <BarWithTooltip tooltip={`💰 予算達成率: ${Math.round((val / budget) * 100)}%（実績 ${val} / 予算 ${budget}）`}>
-                        <div className="w-full h-1 bg-slate-800/60 rounded-full overflow-hidden mt-0.5 cursor-default">
-                          <div className="h-full rounded-full bg-amber-500/60 transition-all" style={{ width: `${Math.min(100, Math.round((val / budget) * 100))}%` }} />
-                        </div>
-                      </BarWithTooltip>
-                    )}
-                    <div className="flex justify-between mt-0.5">
-                      <span className="text-[10px]" style={{ color: progressColor }}>{rate}%</span>
-                      {budget > 0 ? (
-                        <span className="text-[9px] text-amber-500">予算{budgetRate}%</span>
-                      ) : reqDaily > 0 ? (
-                        <span className="text-[9px] text-amber-400">要{reqDaily}/日</span>
-                      ) : null}
-                    </div>
-                    {/* ペース表示（今日の累積目標） */}
-                    {cumTarget > 0 && (
-                      <div className="flex justify-between items-center text-[9px] mt-0.5 pt-0.5 border-t border-slate-700">
-                        <span className="text-slate-500">
-                          今日累積目標: <span className={`font-bold ${isOnTrack ? 'text-cyan-400' : 'text-yellow-400'}`}>{cumTarget}</span>
-                        </span>
-                        {val >= paceBase ? (
-                          <span className="text-green-400 font-bold">✓達成</span>
-                        ) : isOnTrack ? (
-                          <span className="text-cyan-400">▲{paceGap}先行</span>
-                        ) : (
-                          <span className="text-red-400 font-bold">▼{Math.abs(paceGap)}遅れ</span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
+          <CardContent className="p-0 overflow-x-auto">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-slate-800 text-[10px] text-slate-500">
+                  <th className="text-left px-3 py-1.5 font-semibold whitespace-nowrap">KPI</th>
+                  <th className="text-right px-2 py-1.5 font-semibold">その他</th>
+                  <th className="text-right px-2 py-1.5 font-semibold">IG</th>
+                  <th className="text-right px-2 py-1.5 font-semibold text-pink-400">合算</th>
+                  <th className="text-right px-2 py-1.5 font-semibold text-amber-400">予算</th>
+                  <th className="text-right px-3 py-1.5 font-semibold">達成</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  { label: 'アポ獲得', cw: 'apo_get',     ig: 'ig_apo_get' },
+                  { label: 'アポ実施', cw: 'apo_exec',    ig: 'ig_apo_exec',  important: true },
+                  { label: '動員獲得', cw: 'doin_get',    ig: 'ig_doin_get' },
+                  { label: '動員実施', cw: 'doin_exec',   ig: 'ig_doin_exec', important: true },
+                  { label: '面談実施', cw: 'mendan_exec', ig: '',             important: true },
+                  { label: '成約',     cw: 'seiyaku',     ig: 'ig_seiyaku',   important: true },
+                ].map(r => {
+                  const o = monthTotals[r.cw] || 0
+                  const i = r.ig ? igMonthSum(r.ig) : 0
+                  const t = o + i
+                  const bud = (budgets[r.cw] || 0) + (r.ig ? (rawGoals[`b_ig_${r.ig}`] ?? 0) : 0)
+                  const gl = (goalVals[r.cw] || 0) + (r.ig ? (rawGoals[`ig_${r.ig}`] ?? 0) : 0)
+                  const rate = pct(t, gl)
+                  return (
+                    <tr key={r.label} className={`border-b border-slate-800/40 ${r.important ? 'bg-slate-800/30' : ''}`}>
+                      <td className="px-3 py-1.5 font-medium text-slate-300 whitespace-nowrap">{r.important && '★'}{r.label}</td>
+                      <td className="px-2 py-1.5 text-right font-mono text-slate-400">{o}</td>
+                      <td className="px-2 py-1.5 text-right font-mono text-slate-400">{r.ig ? i : '—'}</td>
+                      <td className="px-2 py-1.5 text-right font-mono font-bold text-pink-200">{t}</td>
+                      <td className="px-2 py-1.5 text-right font-mono text-amber-300">{bud || ''}</td>
+                      <td className={`px-3 py-1.5 text-right font-bold ${rate >= 100 ? 'text-green-400' : rate >= 70 ? 'text-yellow-400' : 'text-red-400'}`}>{rate}%</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </CardContent>
         </Card>
 
@@ -532,11 +503,11 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false, monthY
           </CardContent>
         </Card>
 
-        {/* ⑤ ターン案件・動員 */}
+        {/* ⑤ 継続案件 */}
         <Card className="bg-slate-900 border-slate-800">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-slate-300 flex items-center gap-1.5">
-              🔄 ターン案件・動員
+              🔁 継続案件
               <span className="text-xs font-normal text-slate-500">{cases.length}件</span>
             </CardTitle>
           </CardHeader>
@@ -545,44 +516,10 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false, monthY
             {cases.slice(0, 8).map((c) => (
               <div key={c.id} className="flex items-center gap-2 py-0.5 border-b border-slate-800/40">
                 <span className="text-xs text-slate-200 flex-1 truncate">{c.customer_name}</span>
-                <span className="text-[10px] text-indigo-400 shrink-0 truncate max-w-[80px]">{c.next_action}</span>
                 <span className="text-[10px] text-slate-600 shrink-0">{c.next_action_date}</span>
               </div>
             ))}
             {cases.length > 8 && <p className="text-[10px] text-slate-600 pt-1">他 {cases.length - 8}件...</p>}
-          </CardContent>
-        </Card>
-
-        {/* ⑥ 曜日別グラフ */}
-        <Card className="bg-slate-900 border-slate-800">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-slate-300">曜日別 アポ・動員・成約</CardTitle>
-          </CardHeader>
-          <CardContent className="p-2">
-            {(() => {
-              const dayLabels = ['月', '火', '水', '木', '金', '土', '日']
-              const chartData = weekDays.map((date, i) => {
-                const m = metrics.find(d => d.date === date)
-                return {
-                  day: dayLabels[i],
-                  アポ獲得: m?.apo_get || 0,
-                  動員実施: m?.doin_exec || 0,
-                  成約: m?.seiyaku || 0,
-                }
-              })
-              return (
-                <ResponsiveContainer width="100%" height={120}>
-                  <BarChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                    <XAxis dataKey="day" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
-                    <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 6, fontSize: 11 }} />
-                    <Bar dataKey="アポ獲得" fill="#6366f1" radius={[2,2,0,0]} maxBarSize={14} />
-                    <Bar dataKey="動員実施" fill="#8b5cf6" radius={[2,2,0,0]} maxBarSize={14} />
-                    <Bar dataKey="成約" fill="#22c55e" radius={[2,2,0,0]} maxBarSize={14} />
-                  </BarChart>
-                </ResponsiveContainer>
-              )
-            })()}
           </CardContent>
         </Card>
 
