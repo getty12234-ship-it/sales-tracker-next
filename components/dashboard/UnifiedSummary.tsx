@@ -3,8 +3,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect, useRef } from 'react'
 import { useAppState } from '@/lib/store'
-import { getDailyMetrics, getSettings, getInstagramAccounts, getInstagramMonthlyMetrics, upsertMonthlyGoal } from '@/lib/queries'
-import { getMonthDays, pct, remainingWorkdays, passedWorkdays, cumulativeBudgetTarget, requiredDailyFromNow } from '@/lib/date-utils'
+import { getDailyMetrics, getSettings, getInstagramAccounts, getInstagramMonthlyMetrics, getInstagramMetricsByAccounts, upsertMonthlyGoal } from '@/lib/queries'
+import { getMonthDays, getWeekDays, addWeeks, pct, remainingWorkdays, passedWorkdays, cumulativeBudgetTarget, requiredDailyFromNow } from '@/lib/date-utils'
 import { DEFAULT_GOALS, METRIC_FIELDS, IG_METRIC_FIELDS } from '@/lib/constants'
 import type { DailyMetrics, InstagramMetrics } from '@/lib/supabase'
 import { extractBudgets } from '@/lib/supabase'
@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
 import { syncEvents } from './Header'
 import { Layers, Calendar } from 'lucide-react'
-import { PaceCard } from './PaceBar'
+import { MultiPaceCard, buildPaceWindows } from './PaceBar'
 
 // ===== 合算定義（その他⇄インスタの対応キー。インスタに対応がないものは other のみ） =====
 const UNIFIED_KPIS = [
@@ -27,8 +27,12 @@ const UNIFIED_KPIS = [
 ] as const
 
 export function UnifiedSummary() {
-  const { currentMember, currentYearMonth: ym } = useAppState()
+  const { currentMember, currentYearMonth: ym, currentWeekStart } = useAppState()
   const monthDays = getMonthDays(ym)
+  const weekStart = currentWeekStart
+  const lastWeekStart = addWeeks(weekStart, -1)
+  const weekDays = getWeekDays(weekStart)
+  const lastWeekDays = getWeekDays(lastWeekStart)
 
   const { data: otherMetrics = [] } = useQuery({
     queryKey: ['daily_metrics', currentMember?.id, ym],
@@ -52,6 +56,29 @@ export function UnifiedSummary() {
       return results.flat()
     },
     enabled: accounts.length > 0,
+  })
+
+  // 今週・先週（3期間バー用）
+  const accountIds = accounts.map(a => a.id)
+  const { data: otherWeek = [] } = useQuery({
+    queryKey: ['daily_metrics_week', currentMember?.id, weekStart],
+    queryFn: () => getDailyMetrics(currentMember!.id, weekDays[0], weekDays[6]),
+    enabled: !!currentMember,
+  })
+  const { data: otherLastWeek = [] } = useQuery({
+    queryKey: ['daily_metrics_week', currentMember?.id, lastWeekStart],
+    queryFn: () => getDailyMetrics(currentMember!.id, lastWeekDays[0], lastWeekDays[6]),
+    enabled: !!currentMember,
+  })
+  const { data: igWeek = [] } = useQuery({
+    queryKey: ['ig_metrics_member_week', accountIds.join(','), weekStart],
+    queryFn: () => getInstagramMetricsByAccounts(accountIds, weekDays[0], weekDays[6]),
+    enabled: accountIds.length > 0,
+  })
+  const { data: igLastWeek = [] } = useQuery({
+    queryKey: ['ig_metrics_member_week', accountIds.join(','), lastWeekStart],
+    queryFn: () => getInstagramMetricsByAccounts(accountIds, lastWeekDays[0], lastWeekDays[6]),
+    enabled: accountIds.length > 0,
   })
 
   const queryClient = useQueryClient()
@@ -79,16 +106,28 @@ export function UnifiedSummary() {
     return <div className="flex items-center justify-center h-64 text-slate-500">メンバーを選択してください</div>
   }
 
-  // その他チャネルの月次合計
+  // その他チャネルの合計（月／今週／先週）
+  const sumOther = (arr: DailyMetrics[], key: string) =>
+    arr.reduce((s, m) => s + ((m[key as keyof DailyMetrics] as number) || 0), 0)
   const otherTotals: Record<string, number> = {}
+  const otherWeekTotals: Record<string, number> = {}
+  const otherLastWeekTotals: Record<string, number> = {}
   METRIC_FIELDS.forEach(({ key }) => {
-    otherTotals[key] = otherMetrics.reduce((s, m) => s + ((m[key as keyof DailyMetrics] as number) || 0), 0)
+    otherTotals[key] = sumOther(otherMetrics, key)
+    otherWeekTotals[key] = sumOther(otherWeek, key)
+    otherLastWeekTotals[key] = sumOther(otherLastWeek, key)
   })
-  // インスタの月次合計（複数アカウント横断・フロー値のみ）
+  // インスタの合計（複数アカウント横断・フロー値のみ・月／今週／先週）
+  const sumIg = (arr: InstagramMetrics[], key: string) =>
+    arr.reduce((s, m) => s + ((m[key as keyof InstagramMetrics] as number) || 0), 0)
   const igTotals: Record<string, number> = {}
+  const igWeekTotals: Record<string, number> = {}
+  const igLastWeekTotals: Record<string, number> = {}
   IG_METRIC_FIELDS.forEach(({ key, stock }) => {
     if (stock) return
-    igTotals[key] = igMonthly.reduce((s, m) => s + ((m[key as keyof InstagramMetrics] as number) || 0), 0)
+    igTotals[key] = sumIg(igMonthly, key)
+    igWeekTotals[key] = sumIg(igWeek, key)
+    igLastWeekTotals[key] = sumIg(igLastWeek, key)
   })
 
   // 目標・予算
@@ -107,6 +146,8 @@ export function UnifiedSummary() {
     const otherVal = otherTotals[k.key] || 0
     const igVal = k.igKey ? (igTotals[k.igKey] || 0) : 0
     const total = otherVal + igVal
+    const weekVal = (otherWeekTotals[k.key] || 0) + (k.igKey ? (igWeekTotals[k.igKey] || 0) : 0)
+    const lastWeekVal = (otherLastWeekTotals[k.key] || 0) + (k.igKey ? (igLastWeekTotals[k.igKey] || 0) : 0)
     const budget = (budgets[k.key] || 0) + (k.igKey ? igBudget(k.igKey) : 0)
     const goal = (goals[k.key] || 0) + (k.igKey ? igGoal(k.igKey) : 0)
     const paceBase = budget > 0 ? budget : goal
@@ -115,7 +156,7 @@ export function UnifiedSummary() {
     const goalPace = goal > 0 ? cumulativeBudgetTarget(goal, ym) : 0
     const reqDaily = paceBase > 0 ? requiredDailyFromNow(paceBase, total, ym) : 0
     const rate = pct(total, goal)
-    return { ...k, otherVal, igVal, total, budget, goal, paceBase, cumTarget, budgetPace, goalPace, reqDaily, rate }
+    return { ...k, otherVal, igVal, total, weekVal, lastWeekVal, budget, goal, paceBase, cumTarget, budgetPace, goalPace, reqDaily, rate }
   })
 
   return (
@@ -163,21 +204,21 @@ export function UnifiedSummary() {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
             {rows.filter(r => r.pace).map(r => {
               const done = r.paceBase > 0 && r.total >= r.paceBase
+              const windows = buildPaceWindows({
+                monthVal: r.total, weekVal: r.weekVal, lastWeekVal: r.lastWeekVal,
+                monthlyBudget: r.budget, monthlyGoal: r.goal,
+                ym, weekStart, lastWeekStart,
+              })
               return (
-                <PaceCard
+                <MultiPaceCard
                   key={r.key}
                   label={r.label}
-                  value={r.total}
-                  goal={r.goal}
-                  budget={r.budget}
                   color={r.color}
                   important={r.important}
-                  budgetPace={r.budgetPace}
-                  goalPace={r.goalPace}
-                  paceWord="今日"
+                  windows={windows}
                   footer={
                     <div className="flex items-center justify-between text-[10px]">
-                      <span className="text-slate-500">今から必要</span>
+                      <span className="text-slate-500">月間 今から必要</span>
                       {done ? <span className="text-green-400 font-bold">完了</span>
                         : r.reqDaily > 0 ? <span className="text-cyan-300 font-bold">{r.reqDaily}<span className="text-slate-500"> 本/日</span></span>
                         : <span className="text-slate-600">—</span>}
@@ -188,7 +229,7 @@ export function UnifiedSummary() {
             })}
           </div>
           <div className="mt-2 text-[10px] text-slate-600 leading-relaxed">
-            🟡今日の予算ライン＝予算ペースで今日到達しておきたい位置。🩵今日の目標ライン＝目標ペースで今日到達しておきたい位置。「今から必要」＝残り営業日で予算に届かせるのに毎日必要な本数。
+            各KPIを「月間／今週／先週」で表示。🟡予算ライン・🩵目標ラインは各期間で“今ここまで到達しておきたい”位置（先週は週フルの目安）。「月間 今から必要」＝残り営業日で月予算に届かせるのに毎日必要な本数。
           </div>
         </CardContent>
       </Card>

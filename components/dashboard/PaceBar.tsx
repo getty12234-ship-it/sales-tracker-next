@@ -1,6 +1,7 @@
 'use client'
 
 import { Card, CardContent } from '@/components/ui/card'
+import { cumulativeBudgetTarget, weeklyTarget, weeklyCumulativeTarget } from '@/lib/date-utils'
 
 // =====================================================================
 // 共通「バー表示」部品
@@ -75,6 +76,84 @@ export function PaceCard({
         <PaceBarTrack value={value} budget={budget} goal={goal} budgetPace={budgetPace} goalPace={goalPace} color={color} />
         <div className="mt-1.5">
           <PaceLegend paceWord={paceWord} />
+        </div>
+        {footer && <div className="mt-1.5 pt-1.5 border-t border-slate-800/60">{footer}</div>}
+      </CardContent>
+    </Card>
+  )
+}
+
+// =====================================================================
+// 3期間バー（月間／今週／先週）を1カードにまとめる版
+// =====================================================================
+export type PaceWindow = {
+  name: string        // '月間' | '今週' | '先週'
+  value: number
+  budget: number
+  goal: number
+  budgetPace: number
+  goalPace: number
+}
+
+// 月間/今週/先週の3 windowを一括生成
+//   monthlyBudget/monthlyGoal = 月の予算/目標。週はそれを平日按分。
+export function buildPaceWindows(args: {
+  monthVal: number; weekVal: number; lastWeekVal: number
+  monthlyBudget: number; monthlyGoal: number
+  ym: string; weekStart: string; lastWeekStart: string
+}): PaceWindow[] {
+  const { monthVal, weekVal, lastWeekVal, monthlyBudget: b, monthlyGoal: g, ym, weekStart, lastWeekStart } = args
+  return [
+    {
+      name: '月間', value: monthVal, budget: b, goal: g,
+      budgetPace: b > 0 ? cumulativeBudgetTarget(b, ym) : 0,
+      goalPace: g > 0 ? cumulativeBudgetTarget(g, ym) : 0,
+    },
+    {
+      name: '今週', value: weekVal, budget: weeklyTarget(b, weekStart), goal: weeklyTarget(g, weekStart),
+      budgetPace: weeklyCumulativeTarget(b, weekStart), goalPace: weeklyCumulativeTarget(g, weekStart),
+    },
+    {
+      name: '先週', value: lastWeekVal, budget: weeklyTarget(b, lastWeekStart), goal: weeklyTarget(g, lastWeekStart),
+      budgetPace: weeklyCumulativeTarget(b, lastWeekStart), goalPace: weeklyCumulativeTarget(g, lastWeekStart),
+    },
+  ]
+}
+
+// 1KPI = 月間/今週/先週の3本バーカード
+export function MultiPaceCard({
+  label, color, important, windows, footer,
+}: {
+  label: string; color: string; important?: boolean
+  windows: PaceWindow[]; footer?: React.ReactNode
+}) {
+  return (
+    <Card className={`bg-slate-900 border-slate-800 ${important ? 'ring-1 ring-indigo-500/30' : ''}`}>
+      <CardContent className="p-3">
+        <div className="text-sm font-bold mb-2 truncate" style={{ color }}>{important && '★ '}{label}</div>
+        <div className="space-y-2">
+          {windows.map(w => (
+            <div key={w.name}>
+              <div className="flex items-center gap-1.5 text-[10px] leading-tight mb-0.5">
+                <span className="text-slate-500 w-7 shrink-0">{w.name}</span>
+                <span className="text-sm font-bold text-slate-100">{round1(w.value)}</span>
+                <span className="ml-auto tabular-nums">
+                  <span className="text-amber-400/80">予{w.budget ? round1(w.budget) : '—'}</span>
+                  {' '}
+                  <span className="text-cyan-400/70">目{w.goal ? round1(w.goal) : '—'}</span>
+                </span>
+              </div>
+              <PaceBarTrack
+                value={w.value} budget={w.budget} goal={w.goal}
+                budgetPace={w.budgetPace} goalPace={w.goalPace} color={color} height="h-2"
+              />
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 mt-2 text-[9px] text-slate-500 flex-wrap">
+          <span className="flex items-center gap-1"><span className="inline-block w-[2px] h-2.5 bg-amber-400" />予算ライン</span>
+          <span className="flex items-center gap-1"><span className="inline-block w-[2px] h-2.5 bg-cyan-400" />目標ライン</span>
+          <span className="text-slate-600">＝各期間で“今ここまで”の目印</span>
         </div>
         {footer && <div className="mt-1.5 pt-1.5 border-t border-slate-800/60">{footer}</div>}
       </CardContent>

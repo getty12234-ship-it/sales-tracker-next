@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect, useRef } from 'react'
 import { useAppState } from '@/lib/store'
 import { getDailyMetrics, getSettings, getStCases, upsertStCase, deleteStCase, getWeeklyReviews, upsertMonthlyGoal } from '@/lib/queries'
-import { getMonthDays, currentYearMonth, pct, remainingWorkdays, passedWorkdays, totalWorkdays, usableDays, dailyBudgetRate, cumulativeBudgetTarget, requiredDailyFromNow, endOfMonth } from '@/lib/date-utils'
+import { getMonthDays, getWeekDays, addWeeks, currentYearMonth, pct, remainingWorkdays, passedWorkdays, totalWorkdays, usableDays, dailyBudgetRate, cumulativeBudgetTarget, requiredDailyFromNow, endOfMonth } from '@/lib/date-utils'
 import { KPI_SUMMARY, DEFAULT_GOALS, METRIC_FIELDS } from '@/lib/constants'
 import type { DailyMetrics, StCase } from '@/lib/supabase'
 import { extractBudgets } from '@/lib/supabase'
@@ -18,7 +18,7 @@ import { syncEvents } from './Header'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { DailyMetricsTable } from './DailyMetricsTable'
 import { WeekNav } from './WeekNav'
-import { PaceCard } from './PaceBar'
+import { MultiPaceCard, buildPaceWindows } from './PaceBar'
 
 const NEXT_ACTION_OPTIONS = [
   'T-UP',
@@ -32,8 +32,12 @@ const NEXT_ACTION_OPTIONS = [
 ]
 
 export function SummaryDashboard() {
-  const { currentMember, currentYearMonth: ym } = useAppState()
+  const { currentMember, currentYearMonth: ym, currentWeekStart } = useAppState()
   const monthDays = getMonthDays(ym)
+  const weekStart = currentWeekStart
+  const lastWeekStart = addWeeks(weekStart, -1)
+  const weekDays = getWeekDays(weekStart)
+  const lastWeekDays = getWeekDays(lastWeekStart)
   const queryClient = useQueryClient()
 
   // 新規案件入力state
@@ -45,6 +49,18 @@ export function SummaryDashboard() {
   const { data: metrics = [] } = useQuery({
     queryKey: ['daily_metrics', currentMember?.id, ym],
     queryFn: () => getDailyMetrics(currentMember!.id, monthDays[0], monthDays[monthDays.length - 1]),
+    enabled: !!currentMember,
+  })
+
+  // 今週・先週（3期間バー用）
+  const { data: weekMetrics = [] } = useQuery({
+    queryKey: ['daily_metrics_week', currentMember?.id, weekStart],
+    queryFn: () => getDailyMetrics(currentMember!.id, weekDays[0], weekDays[6]),
+    enabled: !!currentMember,
+  })
+  const { data: lastWeekMetrics = [] } = useQuery({
+    queryKey: ['daily_metrics_week', currentMember?.id, lastWeekStart],
+    queryFn: () => getDailyMetrics(currentMember!.id, lastWeekDays[0], lastWeekDays[6]),
     enabled: !!currentMember,
   })
 
@@ -107,8 +123,12 @@ export function SummaryDashboard() {
 
   // 月間合計
   const totals: Record<string, number> = {}
+  const weekTotals: Record<string, number> = {}
+  const lastWeekTotals: Record<string, number> = {}
   METRIC_FIELDS.forEach(({ key }) => {
     totals[key] = metrics.reduce((sum, m) => sum + ((m[key as keyof DailyMetrics] as number) || 0), 0)
+    weekTotals[key] = weekMetrics.reduce((sum, m) => sum + ((m[key as keyof DailyMetrics] as number) || 0), 0)
+    lastWeekTotals[key] = lastWeekMetrics.reduce((sum, m) => sum + ((m[key as keyof DailyMetrics] as number) || 0), 0)
   })
 
   const rawGoals = (settings?.goals as Record<string, number>) || {}
@@ -177,29 +197,19 @@ export function SummaryDashboard() {
         </div>
       </div>
 
-      {/* KPIカード */}
+      {/* KPIカード（月間／今週／先週の3期間バー） */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
         {KPI_SUMMARY.map(({ key, label, color, important }) => {
-          const val = totals[key] || 0
-          const goal = goals[key] || 0
-          const budget = budgets[key] || 0
-          // 今日までに到達しておきたい累積（予算ペース・目標ペース）
-          const budgetPaceTarget = budget > 0 ? cumulativeBudgetTarget(budget, ym) : 0
-          const goalPaceTarget = goal > 0 ? cumulativeBudgetTarget(goal, ym) : 0
-
+          const windows = buildPaceWindows({
+            monthVal: totals[key] || 0,
+            weekVal: weekTotals[key] || 0,
+            lastWeekVal: lastWeekTotals[key] || 0,
+            monthlyBudget: budgets[key] || 0,
+            monthlyGoal: goals[key] || 0,
+            ym, weekStart, lastWeekStart,
+          })
           return (
-            <PaceCard
-              key={key}
-              label={label}
-              value={val}
-              goal={goal}
-              budget={budget}
-              color={color}
-              important={important}
-              budgetPace={budgetPaceTarget}
-              goalPace={goalPaceTarget}
-              paceWord="今日"
-            />
+            <MultiPaceCard key={key} label={label} color={color} important={important} windows={windows} />
           )
         })}
       </div>

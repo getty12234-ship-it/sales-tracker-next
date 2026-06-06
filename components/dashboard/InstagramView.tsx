@@ -3,7 +3,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAppState } from '@/lib/store'
 import { getInstagramAccounts, getInstagramMetrics, getInstagramMonthlyMetrics, upsertInstagramMetrics, createInstagramAccount, updateInstagramAccountStats, deleteInstagramAccount, getSettings } from '@/lib/queries'
-import { getWeekDays, formatDateJa, currentYearMonth, pct, cumulativeBudgetTarget, requiredDailyFromNow, passedWorkdays, remainingWorkdays, totalWorkdays } from '@/lib/date-utils'
+import { getWeekDays, addWeeks, formatDateJa, currentYearMonth, pct, cumulativeBudgetTarget, requiredDailyFromNow, passedWorkdays, remainingWorkdays, totalWorkdays } from '@/lib/date-utils'
+import { MultiPaceCard, buildPaceWindows } from './PaceBar'
 import { IG_METRIC_FIELDS, IG_STOCK_FIELDS, IG_TRIM_FIELDS, IG_POST_FIELDS, IG_FUNNEL, IG_TREND_LINES, IG_EMPTY_METRICS, IG_DEFAULT_GOALS, IG_KPI_SUMMARY } from '@/lib/constants'
 import { syncEvents } from './Header'
 import { useState, useCallback, useEffect, useRef } from 'react'
@@ -37,6 +38,8 @@ export function InstagramView() {
   const { currentMember, currentWeekStart } = useAppState()
   const queryClient = useQueryClient()
   const weekDays = getWeekDays(currentWeekStart)
+  const lastWeekStart = addWeeks(currentWeekStart, -1)
+  const lastWeekDays = getWeekDays(lastWeekStart)
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
   const [newName, setNewName] = useState('')
   const [newUrl, setNewUrl] = useState('')
@@ -65,6 +68,13 @@ export function InstagramView() {
     enabled: !!effectiveAccountId,
   })
   const metricsMap = Object.fromEntries(metrics.map(m => [m.date, m])) as Record<string, InstagramMetrics>
+
+  // 先週（3期間バー用・選択アカウント）
+  const { data: lastWeekMetrics = [] } = useQuery({
+    queryKey: ['ig_metrics', effectiveAccountId, lastWeekStart],
+    queryFn: () => getInstagramMetrics(effectiveAccountId!, lastWeekDays[0], lastWeekDays[6]),
+    enabled: !!effectiveAccountId,
+  })
 
   const { mutateAsync: save } = useMutation({
     mutationFn: upsertInstagramMetrics,
@@ -388,11 +398,15 @@ export function InstagramView() {
             </Card>
           </div>
 
-          {/* 月間目標進捗（KPIごとのバー：達成率・ペース・予算） */}
+          {/* 目標進捗（KPIごとに 月間／今週／先週 の3期間バー） */}
           <IgGoalProgress
             account={effectiveAccount}
             monthMetrics={selectedMonthMetrics}
+            weekMetrics={metrics}
+            lastWeekMetrics={lastWeekMetrics}
             ym={ym}
+            weekStart={currentWeekStart}
+            lastWeekStart={lastWeekStart}
             rawGoals={rawGoals}
           />
 
@@ -584,17 +598,23 @@ export function InstagramView() {
   )
 }
 
-// ===== 月間目標進捗（KPIごとのバー：達成率・ペース・予算） =====
+// ===== 目標進捗（KPIごとに 月間／今週／先週 の3期間バー） =====
 function IgGoalProgress({
-  account, monthMetrics, ym, rawGoals,
+  account, monthMetrics, weekMetrics, lastWeekMetrics, ym, weekStart, lastWeekStart, rawGoals,
 }: {
   account: InstagramAccount | null
   monthMetrics: InstagramMetrics[]
+  weekMetrics: InstagramMetrics[]
+  lastWeekMetrics: InstagramMetrics[]
   ym: string
+  weekStart: string
+  lastWeekStart: string
   rawGoals: Record<string, number>
 }) {
   if (!account) return null
   const totals = monthAgg(monthMetrics)
+  const weekTotals = monthAgg(weekMetrics)
+  const lastWeekTotals = monthAgg(lastWeekMetrics)
   const passed = passedWorkdays(ym)
   const remaining = remainingWorkdays(ym)
 
@@ -614,36 +634,29 @@ function IgGoalProgress({
     <Card className="bg-slate-900 border-slate-800">
       <CardHeader className="pb-2">
         <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
-          <Target className="w-4 h-4 text-pink-400" />月間目標進捗（{ym.replace('-', '年')}月）
-          <span className="text-[11px] font-normal text-slate-500">{account.name} ・ 経過 {passed}日 / 残り {remaining}日</span>
+          <Target className="w-4 h-4 text-pink-400" />目標進捗（月間／今週／先週）
+          <span className="text-[11px] font-normal text-slate-500">{account.name} ・ {ym.replace('-', '年')}月 経過 {passed}日 / 残り {remaining}日</span>
         </CardTitle>
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
           {IG_KPI_SUMMARY.map(({ key, label, color, important }) => {
-            const val = totals[key] || 0
-            const goal = igGoal(key)
-            const budget = igBudget(key)
-            const budgetPaceTarget = budget > 0 ? cumulativeBudgetTarget(budget, ym) : 0
-            const goalPaceTarget = goal > 0 ? cumulativeBudgetTarget(goal, ym) : 0
+            const windows = buildPaceWindows({
+              monthVal: totals[key] || 0,
+              weekVal: weekTotals[key] || 0,
+              lastWeekVal: lastWeekTotals[key] || 0,
+              monthlyBudget: igBudget(key),
+              monthlyGoal: igGoal(key),
+              ym, weekStart, lastWeekStart,
+            })
             return (
-              <IgKpiCard
-                key={key}
-                label={label}
-                value={val}
-                goal={goal}
-                budget={budget}
-                color={color}
-                important={important}
-                budgetPaceTarget={budgetPaceTarget}
-                goalPaceTarget={goalPaceTarget}
-              />
+              <MultiPaceCard key={key} label={label} color={color} important={important} windows={windows} />
             )
           })}
         </div>
         <div className="mt-3 text-[10px] text-slate-600 leading-relaxed">
           💡 目標は設定画面の「インスタの予算・目標設定」でカスタマイズ可。未設定なら公式運用ルール基準（1アカ：投稿30/月・DM900/月・アポ獲得10/月・成約1/月）。<br />
-          🟡今日の予算ライン／🩵今日の目標ライン＝今日ここまで到達しておきたい位置。実績フィルが線を越えていればペース通り。
+          各KPIを「月間／今週／先週」で表示。🟡予算ライン・🩵目標ライン＝各期間で“今ここまで”到達しておきたい位置（先週は週フルの目安）。
         </div>
       </CardContent>
     </Card>
