@@ -115,16 +115,17 @@ export function UnifiedSummary() {
         </CardContent>
       </Card>
 
-      {/* 統合KPIカード（合算） */}
+      {/* 主要KPIの着地（合算）— 重要KPIだけに絞ってカード表示。全KPIは下の表で。 */}
       <Card className="bg-slate-900 border-slate-800">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
-            🎯 統合KPI（その他 + インスタの合算）
+            🎯 主要KPIの着地（合算）
+            <span className="text-[11px] font-normal text-slate-500">アポ実施・動員実施・面談実施・成約／全KPIは下の表</span>
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 gap-3">
-            {UNIFIED_KPIS.map(({ key, igKey, label, color, important }) => {
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {UNIFIED_KPIS.filter(k => k.important).map(({ key, igKey, label, color, important }) => {
               const otherVal = otherTotals[key] || 0
               const igVal = igKey ? (igTotals[igKey] || 0) : 0
               const totalVal = otherVal + igVal
@@ -194,8 +195,8 @@ export function UnifiedSummary() {
       <Card className="bg-slate-900 border-slate-800">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
-            📊 チャネル別内訳
-            <span className="text-[11px] font-normal text-slate-500">合算結果の構成比</span>
+            📊 月次 全KPI一覧（その他 / インスタ / 合算）
+            <span className="text-[11px] font-normal text-slate-500">実績と予算・目標を一覧で</span>
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0 overflow-x-auto">
@@ -212,7 +213,7 @@ export function UnifiedSummary() {
               </tr>
             </thead>
             <tbody>
-              {UNIFIED_KPIS.map(({ key, igKey, label, color }) => {
+              {UNIFIED_KPIS.map(({ key, igKey, label, color, important }) => {
                 const otherVal = otherTotals[key] || 0
                 const igVal = igKey ? (igTotals[igKey] || 0) : 0
                 const total = otherVal + igVal
@@ -220,8 +221,8 @@ export function UnifiedSummary() {
                 const totalBudget = (budgets[key] || 0) + (igKey ? igBudget(igKey) : 0)
                 const rate = pct(total, totalGoal)
                 return (
-                  <tr key={key} className="border-b border-slate-800/40 hover:bg-slate-800/20">
-                    <td className="px-4 py-2 font-semibold" style={{ color }}>{label}</td>
+                  <tr key={key} className={`border-b border-slate-800/40 hover:bg-slate-800/20 ${important ? 'bg-slate-800/30' : ''}`}>
+                    <td className="px-4 py-2 font-semibold" style={{ color }}>{important && '★ '}{label}</td>
                     <td className="px-3 py-2 text-right text-slate-300 font-mono">{otherVal}</td>
                     <td className="px-3 py-2 text-right text-slate-300 font-mono">{igKey ? igVal : <span className="text-slate-700">—</span>}</td>
                     <td className="px-3 py-2 text-right font-bold font-mono" style={{ color }}>{total}</td>
