@@ -244,14 +244,12 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false, monthY
 
         {/* ① 統合実績（その他＋インスタ・今週/先週・バー表示） */}
         <Card className="bg-slate-900 border-slate-800">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
-                📊 統合実績
-                <span className="text-xs font-normal text-slate-500">{paceWord}・その他＋インスタ合算</span>
-              </CardTitle>
-              <PaceLegend paceWord={paceWord} />
-            </div>
+          <CardHeader className="pb-2 space-y-1">
+            <CardTitle className="text-sm text-slate-300 flex items-center gap-2 whitespace-nowrap">
+              📊 統合実績
+              <span className="text-xs font-normal text-slate-500 truncate">{paceWord}・その他＋インスタ合算</span>
+            </CardTitle>
+            <PaceLegend paceWord={paceWord} />
           </CardHeader>
           <CardContent className="p-3 pt-0 space-y-0.5">
             {REVIEW_KPIS.map(r => {
@@ -279,14 +277,12 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false, monthY
 
         {/* ② その他の獲得方法（クラウドワークス等・今週/先週・バー表示） */}
         <Card className="bg-slate-900 border-slate-800">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
-                🗂 その他の獲得方法
-                <span className="text-xs font-normal text-slate-500">{paceWord}・クラウドワークス等</span>
-              </CardTitle>
-              <PaceLegend paceWord={paceWord} />
-            </div>
+          <CardHeader className="pb-2 space-y-1">
+            <CardTitle className="text-sm text-slate-300 flex items-center gap-2 whitespace-nowrap">
+              🗂 その他の獲得方法
+              <span className="text-xs font-normal text-slate-500 truncate">{paceWord}・クラウドワークス等</span>
+            </CardTitle>
+            <PaceLegend paceWord={paceWord} />
           </CardHeader>
           <CardContent className="space-y-0.5 p-3 pt-0">
             {REVIEW_KPIS.map(r => {
