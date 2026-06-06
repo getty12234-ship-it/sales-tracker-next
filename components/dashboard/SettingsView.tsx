@@ -308,6 +308,64 @@ export function SettingsView() {
         </Card>
       )}
 
+      {/* 合計（その他＋インスタ）予算・目標 — 自動計算の確認用 */}
+      {currentMember && (
+        <Card className="bg-slate-900 border-slate-800 border-l-2 border-l-pink-500/50">
+          <CardHeader>
+            <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
+              <Wallet className="w-4 h-4 text-pink-400" />
+              合計（その他＋インスタ）予算・目標 ({currentMember.name})
+              <span className="text-[11px] font-normal text-slate-500">上の2つの設定から自動計算</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0 overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="border-b border-slate-800 text-[11px] text-slate-500">
+                  <th className="text-left px-4 py-2 font-semibold whitespace-nowrap">KPI</th>
+                  <th className="text-right px-3 py-2 font-semibold whitespace-nowrap">その他<br/>予算</th>
+                  <th className="text-right px-3 py-2 font-semibold whitespace-nowrap text-pink-400">インスタ<br/>予算</th>
+                  <th className="text-right px-3 py-2 font-semibold whitespace-nowrap text-amber-400">合計<br/>予算</th>
+                  <th className="text-right px-4 py-2 font-semibold whitespace-nowrap text-indigo-300">合計<br/>目標</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  { label: 'アポ獲得', cw: 'apo_get',    ig: 'ig_apo_get' },
+                  { label: 'アポ実施', cw: 'apo_exec',   ig: 'ig_apo_exec' },
+                  { label: 'オファー', cw: 'offer',      ig: 'ig_offer' },
+                  { label: '動員獲得', cw: 'doin_get',   ig: 'ig_doin_get' },
+                  { label: '動員実施', cw: 'doin_exec',  ig: 'ig_doin_exec' },
+                  { label: '面談実施', cw: 'mendan_exec', ig: '' },
+                  { label: '成約',     cw: 'seiyaku',    ig: 'ig_seiyaku' },
+                ].map(r => {
+                  // その他：入力中の値＞DB。目標は予算×1.2（未設定はDEFAULT_GOALS）
+                  const cwB = parseFloat(getBudgetVal(r.cw)) || 0
+                  const cwGoal = cwB > 0 ? Math.ceil(cwB * 1.2) : (goals[r.cw] || 0)
+                  // インスタ：設定値のみ（未設定は0。合算にデフォルトは足さない＝統合サマリーと一致）
+                  const igB = r.ig ? (parseFloat(getBudgetVal(`ig_${r.ig}`)) || 0) : 0
+                  const igGoal = r.ig ? (igB > 0 ? Math.ceil(igB * 1.2) : (rawGoals[`ig_${r.ig}`] ?? 0)) : 0
+                  const totalB = cwB + igB
+                  const totalGoal = cwGoal + igGoal
+                  return (
+                    <tr key={r.label} className="border-b border-slate-800/40">
+                      <td className="px-4 py-2 text-slate-300 whitespace-nowrap">{r.label}</td>
+                      <td className="px-3 py-2 text-right font-mono text-slate-400">{cwB || ''}</td>
+                      <td className="px-3 py-2 text-right font-mono text-slate-400">{r.ig ? (igB || '') : '—'}</td>
+                      <td className="px-3 py-2 text-right font-mono font-bold text-amber-300">{totalB || ''}</td>
+                      <td className="px-4 py-2 text-right font-mono font-bold text-indigo-200">{totalGoal || ''}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+            <div className="px-4 py-2 text-[10px] text-slate-600 leading-relaxed">
+              合計＝「その他の予算・目標」＋「インスタの予算・目標」。投稿・LINE交換・DM送信/返信はチャネル固有のため合計対象外。インスタ未設定（空欄）は0として合計します（統合サマリーと同じ計算）。
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* 目標のみ手動設定（予算未設定の場合のフォールバック） */}
       {currentMember && Object.values(budgets).every(v => v === 0) && (
         <Card className="bg-slate-900 border-slate-800">
