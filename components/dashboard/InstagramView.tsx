@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAppState } from '@/lib/store'
-import { getInstagramAccounts, getInstagramMetrics, getInstagramMonthlyMetrics, upsertInstagramMetrics, createInstagramAccount, updateInstagramAccountStats, deleteInstagramAccount, getSettings } from '@/lib/queries'
+import { getInstagramAccounts, getInstagramMetrics, getInstagramMonthlyMetrics, getInstagramMetricsByAccounts, upsertInstagramMetrics, createInstagramAccount, updateInstagramAccountStats, deleteInstagramAccount, getSettings } from '@/lib/queries'
 import { getWeekDays, addWeeks, today, getWeekStart, formatDateJa, currentYearMonth, pct, cumulativeBudgetTarget, requiredDailyFromNow, passedWorkdays, remainingWorkdays, totalWorkdays } from '@/lib/date-utils'
 import { MultiPaceCard, buildPaceWindows } from './PaceBar'
 import { IG_METRIC_FIELDS, IG_STOCK_FIELDS, IG_TRIM_FIELDS, IG_POST_FIELDS, IG_FUNNEL, IG_TREND_LINES, IG_EMPTY_METRICS, IG_DEFAULT_GOALS, IG_KPI_SUMMARY } from '@/lib/constants'
@@ -18,6 +18,7 @@ import type { InstagramMetrics, InstagramAccount } from '@/lib/supabase'
 
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const num = (v: unknown) => (typeof v === 'number' ? v : parseInt(String(v ?? '')) || 0)
+const ALL_ID = '__ALL__' // 全アカウント統合モードの擬似アカウントID
 
 // ホバーで詳細を出すバー
 function BarWithTooltip({ tooltip, children }: { tooltip: string; children: React.ReactNode }) {
@@ -103,6 +104,20 @@ export function InstagramView() {
       return accounts.map((acc, i) => ({ account: acc, metrics: results[i] }))
     },
     enabled: accounts.length > 0,
+  })
+
+  // ===== 全アカウント統合モード =====
+  const allMode = selectedAccountId === ALL_ID && accounts.length > 0
+  const allIds = accounts.map(a => a.id)
+  const { data: igWeekAllFlat = [] } = useQuery({
+    queryKey: ['ig_week_all', allIds.join(','), currentWeekStart],
+    queryFn: () => getInstagramMetricsByAccounts(allIds, weekDays[0], weekDays[6]),
+    enabled: allMode && allIds.length > 0,
+  })
+  const { data: igLastWeekAllFlat = [] } = useQuery({
+    queryKey: ['ig_week_all', allIds.join(','), lastWeekStart],
+    queryFn: () => getInstagramMetricsByAccounts(allIds, lastWeekDays[0], lastWeekDays[6]),
+    enabled: allMode && allIds.length > 0,
   })
 
   const { mutate: addAccount, isPending: addingAccount } = useMutation({
@@ -258,29 +273,73 @@ export function InstagramView() {
     return <div className="text-slate-500 text-sm p-8 text-center">メンバーを選択してください</div>
   }
 
-  // ===== 今週の集計 =====
-  const flowSum = (key: string) => weekDays.reduce((s, d) => s + num(metricsMap[d]?.[key as keyof InstagramMetrics]), 0)
-  const stockLatest = (key: string) => { for (let i = weekDays.length - 1; i >= 0; i--) { const v = num(metricsMap[weekDays[i]]?.[key as keyof InstagramMetrics]); if (v > 0) return v } return 0 }
-  const stockFirst = (key: string) => { for (let i = 0; i < weekDays.length; i++) { const v = num(metricsMap[weekDays[i]]?.[key as keyof InstagramMetrics]); if (v > 0) return v } return 0 }
-  const stockDelta = (key: string) => { const l = stockLatest(key), f = stockFirst(key); return (l > 0 && f > 0) ? l - f : 0 }
-  const blockedDays = weekDays.filter(d => metricsMap[d]?.blocked).length
+  // ===== 集計（単一アカウント／全アカウント統合の両対応） =====
+  // -- 単一アカウント（今週）--
+  const flowSumOne = (key: string) => weekDays.reduce((s, d) => s + num(metricsMap[d]?.[key as keyof InstagramMetrics]), 0)
+  const stockLatestOne = (key: string) => { for (let i = weekDays.length - 1; i >= 0; i--) { const v = num(metricsMap[weekDays[i]]?.[key as keyof InstagramMetrics]); if (v > 0) return v } return 0 }
+  const stockFirstOne = (key: string) => { for (let i = 0; i < weekDays.length; i++) { const v = num(metricsMap[weekDays[i]]?.[key as keyof InstagramMetrics]); if (v > 0) return v } return 0 }
 
-  // 現在値はアカウントのスナップショット優先（無ければ日次の最新値）
-  const followerLatest = effectiveAccount?.cur_followers || stockLatest('followers')
-  const followerDelta = stockDelta('followers')
-  const followLatest = effectiveAccount?.cur_follows || stockLatest('follows')
+  // -- 全アカウント統合（フロー=合計 / ストック=各アカ最新の合計）--
+  const groupByAcc = (arr: InstagramMetrics[]): InstagramMetrics[][] => {
+    const m: Record<string, InstagramMetrics[]> = {}
+    arr.forEach(x => { (m[x.account_id] = m[x.account_id] || []).push(x) })
+    return Object.values(m)
+  }
+  const monthByAcc = monthlyMetricsList.map(x => x.metrics)
+  const weekByAcc = groupByAcc(igWeekAllFlat)
+  const lastWeekByAcc = groupByAcc(igLastWeekAllFlat)
+  const combinedAgg = (perAcc: InstagramMetrics[][]): Record<string, number> => {
+    const out: Record<string, number> = {}
+    IG_METRIC_FIELDS.forEach(({ key }) => { out[key] = 0 })
+    perAcc.forEach(arr => { const a = monthAgg(arr); IG_METRIC_FIELDS.forEach(({ key }) => { out[key] += (a[key] || 0) }) })
+    return out
+  }
+  const allMonthTotals = combinedAgg(monthByAcc)
+  const allWeekTotals = combinedAgg(weekByAcc)
+  const allLastWeekTotals = combinedAgg(lastWeekByAcc)
+
+  // -- モード対応の派生値 --
+  const flowSum = (key: string) => allMode ? (allWeekTotals[key] || 0) : flowSumOne(key)
+  const stockLatest = (key: string) => allMode ? (allWeekTotals[key] || 0) : stockLatestOne(key)
+  const blockedDays = allMode
+    ? weekByAcc.reduce((s, arr) => s + arr.filter(m => m.blocked).length, 0)
+    : weekDays.filter(d => metricsMap[d]?.blocked).length
+
+  const followerLatest = allMode
+    ? (accounts.reduce((s, a) => s + (a.cur_followers || 0), 0) || (allWeekTotals.followers || 0))
+    : (effectiveAccount?.cur_followers || stockLatestOne('followers'))
+  const followerDelta = allMode
+    ? weekByAcc.reduce((s, arr) => {
+        const v = [...arr].sort((a, b) => a.date.localeCompare(b.date)).map(m => num(m.followers)).filter(x => x > 0)
+        return v.length >= 2 ? s + (v[v.length - 1] - v[0]) : s
+      }, 0)
+    : (() => { const l = stockLatestOne('followers'), f = stockFirstOne('followers'); return (l > 0 && f > 0) ? l - f : 0 })()
+  const followLatest = allMode
+    ? (accounts.reduce((s, a) => s + (a.cur_follows || 0), 0) || (allWeekTotals.follows || 0))
+    : (effectiveAccount?.cur_follows || stockLatestOne('follows'))
   const dmSendWeek = flowSum('dm_send')
   const seiyakuWeek = flowSum('ig_seiyaku')
   const funnelTop = flowSum('dm_send')
   const overallRate = pct(seiyakuWeek, dmSendWeek)
 
-  // 選択アカウントの当月推移
-  const selectedMonthMetrics = monthlyMetricsList.find(m => m.account.id === effectiveAccountId)?.metrics || []
-  const trendData = buildWeeklyTrend(selectedMonthMetrics)
-  const followerSeries = [...selectedMonthMetrics]
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .map(m => ({ d: m.date.slice(5).replace('-', '/'), フォロワー: num(m.followers), フォロー: num(m.follows) }))
-    .filter(p => p.フォロワー > 0 || p.フォロー > 0)
+  // 当月推移（チャート）。ALLは全アカ合算
+  const selectedMonthMetrics = allMode ? [] : (monthlyMetricsList.find(m => m.account.id === effectiveAccountId)?.metrics || [])
+  const trendData = allMode
+    ? buildWeeklyTrend(monthlyMetricsList.flatMap(x => x.metrics))
+    : buildWeeklyTrend(selectedMonthMetrics)
+  const followerSeries = allMode
+    ? (() => {
+        const byDate: Record<string, { f: number; g: number }> = {}
+        monthlyMetricsList.forEach(({ metrics }) => metrics.forEach(m => {
+          if (!byDate[m.date]) byDate[m.date] = { f: 0, g: 0 }
+          byDate[m.date].f += num(m.followers); byDate[m.date].g += num(m.follows)
+        }))
+        return Object.keys(byDate).sort().map(d => ({ d: d.slice(5).replace('-', '/'), フォロワー: byDate[d].f, フォロー: byDate[d].g })).filter(p => p.フォロワー > 0 || p.フォロー > 0)
+      })()
+    : [...selectedMonthMetrics]
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .map(m => ({ d: m.date.slice(5).replace('-', '/'), フォロワー: num(m.followers), フォロー: num(m.follows) }))
+        .filter(p => p.フォロワー > 0 || p.フォロー > 0)
 
   // 入力テーブルのグループ定義
   const tableGroups = [
@@ -298,8 +357,19 @@ export function InstagramView() {
           <div className="flex items-center gap-2 flex-wrap">
             <Camera className="w-4 h-4 text-pink-400" />
             <span className="text-xs text-slate-400">アカウント:</span>
+            {accounts.length >= 2 && (
+              <button
+                onClick={() => setSelectedAccountId(ALL_ID)}
+                className={`rounded-full text-xs font-bold px-3 py-1 transition-colors ${
+                  allMode ? 'bg-amber-500 text-white' : 'bg-slate-800 text-amber-300 hover:bg-slate-700'
+                }`}
+                title="全アカウントを合算して表示"
+              >
+                全アカウント統合
+              </button>
+            )}
             {accounts.map(acc => {
-              const active = effectiveAccountId === acc.id
+              const active = !allMode && effectiveAccountId === acc.id
               return (
                 <span
                   key={acc.id}
@@ -373,31 +443,39 @@ export function InstagramView() {
         </Card>
       ) : (
         <>
-          {/* 現在の数値（アカウントごと・プロフィール最新値） */}
+          {/* 現在の数値（単一=編集可 / 全アカウント統合=合計・読取専用） */}
           <Card className="bg-slate-900 border-slate-800">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
                 <Users className="w-4 h-4 text-pink-400" />現在の数値
-                <span className="text-[11px] font-normal text-slate-500">{effectiveAccount?.name} のプロフィール最新値を記入</span>
+                <span className="text-[11px] font-normal text-slate-500">
+                  {allMode ? `全${accounts.length}アカウントの合計（読取専用）` : `${effectiveAccount?.name} のプロフィール最新値を記入`}
+                </span>
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-3 gap-3 max-w-md">
                 {([
-                  { key: 'cur_followers', label: 'フォロワー', color: '#f472b6' },
-                  { key: 'cur_follows', label: 'フォロー中', color: '#ec4899' },
-                  { key: 'cur_posts', label: '投稿数', color: '#a78bfa' },
+                  { key: 'cur_followers', label: 'フォロワー', color: '#f472b6', all: accounts.reduce((s, a) => s + (a.cur_followers || 0), 0) },
+                  { key: 'cur_follows', label: 'フォロー中', color: '#ec4899', all: accounts.reduce((s, a) => s + (a.cur_follows || 0), 0) },
+                  { key: 'cur_posts', label: '投稿数', color: '#a78bfa', all: accounts.reduce((s, a) => s + (a.cur_posts || 0), 0) },
                 ] as const).map(f => (
                   <div key={f.key}>
                     <label className="text-[11px] block mb-1" style={{ color: f.color }}>{f.label}</label>
-                    <input
-                      type="number" min={0} inputMode="numeric"
-                      className="w-full bg-slate-950 border border-slate-700 rounded-md px-2 py-1.5 text-base font-bold text-slate-100 outline-none focus:border-slate-500"
-                      value={stats[f.key] || ''}
-                      placeholder="0"
-                      onChange={e => handleStat(f.key, parseInt(e.target.value) || 0)}
-                      onFocus={e => e.target.select()}
-                    />
+                    {allMode ? (
+                      <div className="w-full bg-slate-950/60 border border-slate-800 rounded-md px-2 py-1.5 text-base font-bold text-slate-100">
+                        {f.all.toLocaleString()}
+                      </div>
+                    ) : (
+                      <input
+                        type="number" min={0} inputMode="numeric"
+                        className="w-full bg-slate-950 border border-slate-700 rounded-md px-2 py-1.5 text-base font-bold text-slate-100 outline-none focus:border-slate-500"
+                        value={stats[f.key] || ''}
+                        placeholder="0"
+                        onChange={e => handleStat(f.key, parseInt(e.target.value) || 0)}
+                        onFocus={e => e.target.select()}
+                      />
+                    )}
                   </div>
                 ))}
               </div>
@@ -450,9 +528,14 @@ export function InstagramView() {
           {/* 目標進捗（KPIごとに 月間／今週／先週 の3期間バー） */}
           <IgGoalProgress
             account={effectiveAccount}
+            label={allMode ? '全アカウント統合' : undefined}
+            accountCount={allMode ? accounts.length : 1}
             monthMetrics={selectedMonthMetrics}
             weekMetrics={metrics}
             lastWeekMetrics={lastWeekMetrics}
+            totalsOverride={allMode ? allMonthTotals : undefined}
+            weekTotalsOverride={allMode ? allWeekTotals : undefined}
+            lastWeekTotalsOverride={allMode ? allLastWeekTotals : undefined}
             ym={ym}
             weekStart={currentWeekStart}
             lastWeekStart={lastWeekStart}
@@ -553,7 +636,12 @@ export function InstagramView() {
             </Card>
           </div>
 
-          {/* メトリクス入力テーブル */}
+          {/* メトリクス入力テーブル（単一アカウントのみ。統合は閲覧専用なので非表示） */}
+          {allMode ? (
+            <div className="rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-3 text-xs text-slate-500">
+              日次入力は各アカウントを選択して行ってください（全アカウント統合は閲覧専用です）。
+            </div>
+          ) : (
           <div className="overflow-x-auto rounded-lg border border-slate-800">
             <table className="w-full text-sm border-collapse" style={{ minWidth: '760px' }}>
               <thead>
@@ -592,6 +680,7 @@ export function InstagramView() {
               </tbody>
             </table>
           </div>
+          )}
 
           {/* 月間アカウント別サマリー */}
           {monthlyMetricsList.length > 0 && (
@@ -650,6 +739,7 @@ export function InstagramView() {
 // ===== 目標進捗（KPIごとに 月間／今週／先週 の3期間バー） =====
 function IgGoalProgress({
   account, monthMetrics, weekMetrics, lastWeekMetrics, ym, weekStart, lastWeekStart, rawGoals,
+  totalsOverride, weekTotalsOverride, lastWeekTotalsOverride, accountCount = 1, label,
 }: {
   account: InstagramAccount | null
   monthMetrics: InstagramMetrics[]
@@ -659,24 +749,29 @@ function IgGoalProgress({
   weekStart: string
   lastWeekStart: string
   rawGoals: Record<string, number>
+  totalsOverride?: Record<string, number>
+  weekTotalsOverride?: Record<string, number>
+  lastWeekTotalsOverride?: Record<string, number>
+  accountCount?: number
+  label?: string
 }) {
-  if (!account) return null
-  const totals = monthAgg(monthMetrics)
-  const weekTotals = monthAgg(weekMetrics)
-  const lastWeekTotals = monthAgg(lastWeekMetrics)
+  if (!account && !totalsOverride) return null
+  const totals = totalsOverride ?? monthAgg(monthMetrics)
+  const weekTotals = weekTotalsOverride ?? monthAgg(weekMetrics)
+  const lastWeekTotals = lastWeekTotalsOverride ?? monthAgg(lastWeekMetrics)
   const passed = passedWorkdays(ym)
   const remaining = remainingWorkdays(ym)
 
-  // 目標・予算の解決ロジック（カスタム > デフォルト）
+  // 目標・予算の解決ロジック（カスタム > デフォルト）。統合時はアカウント数で按分倍率をかける
   const igGoal = (key: string): number => {
     const customKey = `ig_${key}`
-    if (rawGoals[customKey] !== undefined && rawGoals[customKey] > 0) return rawGoals[customKey]
-    return IG_DEFAULT_GOALS[key] || 0
+    const base = (rawGoals[customKey] !== undefined && rawGoals[customKey] > 0) ? rawGoals[customKey] : (IG_DEFAULT_GOALS[key] || 0)
+    return base * accountCount
   }
   const igBudget = (key: string): number => {
     const customKey = `b_ig_${key}`
-    if (rawGoals[customKey] !== undefined && rawGoals[customKey] > 0) return rawGoals[customKey]
-    return igGoal(key)
+    const base = (rawGoals[customKey] !== undefined && rawGoals[customKey] > 0) ? rawGoals[customKey] : 0
+    return (base > 0 ? base : igGoal(key) / accountCount) * accountCount
   }
 
   return (
@@ -684,7 +779,7 @@ function IgGoalProgress({
       <CardHeader className="pb-2">
         <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
           <Target className="w-4 h-4 text-pink-400" />目標進捗（月間／今週／先週）
-          <span className="text-[11px] font-normal text-slate-500">{account.name} ・ {ym.replace('-', '年')}月 経過 {passed}日 / 残り {remaining}日</span>
+          <span className="text-[11px] font-normal text-slate-500">{label ?? account?.name} ・ {ym.replace('-', '年')}月 経過 {passed}日 / 残り {remaining}日{accountCount > 1 ? `（予算×${accountCount}アカ）` : ''}</span>
         </CardTitle>
       </CardHeader>
       <CardContent>
