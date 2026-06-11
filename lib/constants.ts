@@ -79,29 +79,19 @@ export const MEMBER_COLORS = [
 // Instagram 全項目（入力テーブル・月間サマリー・CSV用。スプレッドシート順）
 // stock=true は累計値（合計せず最新値・純増で扱う）
 export const IG_METRIC_FIELDS: { key: string; label: string; stock?: boolean }[] = [
-  { key: 'follows',         label: 'フォロー',      stock: true },
-  { key: 'followers',       label: 'フォロワー',    stock: true },
-  { key: 'follow_trim',     label: 'フォロー削り' },
-  { key: 'follower_trim',   label: 'フォロワー削り' },
-  { key: 'posts',           label: '投稿数' },
-  { key: 'dm_send',         label: 'DM送信' },
-  { key: 'dm_reply',        label: 'DM返信' },
-  { key: 'ig_apo_get',      label: 'アポ獲得' },
-  { key: 'ig_apo_exec',     label: 'アポ実施' },
-  { key: 'ig_apo_cxl',      label: 'アポCXL' },
-  { key: 'ig_test_close',   label: 'テストクロ' },
-  { key: 'ig_offer',        label: 'オファー' },
-  { key: 'ig_ng',           label: 'NG' },
-  { key: 'ig_muchaku',      label: '無着地' },
-  { key: 'ig_line_exchange',label: 'LINE交換' },
-  { key: 'ig_doin_get',     label: '動員獲得' },
-  { key: 'ig_doin_get_cxl', label: '動員獲得CXL' },
-  { key: 'ig_doin_exec',    label: '動員実施' },
-  { key: 'ig_doin_exec_cxl',label: '動員実施CXL' },
-  { key: 'ig_mendan_get',   label: '面談獲得' },
-  { key: 'ig_mendan_exec',  label: '面談実施' },
-  { key: 'ig_seiyaku',      label: '成約' },
-  { key: 'ig_cooling_off',  label: 'クーリングOFF' },
+  { key: 'follows',      label: 'フォロー',      stock: true },
+  { key: 'followers',    label: 'フォロワー',    stock: true },
+  { key: 'follow_trim',  label: 'フォロー削り' },
+  { key: 'follower_trim',label: 'フォロワー削り' },
+  { key: 'posts',        label: '投稿数' },
+  { key: 'dm_send',      label: 'DM送信' },
+  { key: 'dm_reply',     label: 'DM返信' },
+  { key: 'ig_offer',     label: 'オファー' },
+  { key: 'ig_apo_get',   label: 'アポ' },
+  { key: 'ig_apo_exec',  label: 'アポ実施' },
+  { key: 'ig_doin_get',  label: '動員' },
+  { key: 'ig_doin_exec', label: '動員実施' },
+  { key: 'ig_seiyaku',   label: '成約' },
 ]
 
 // 集客ストック（累計：最新値＋純増で表示）
@@ -147,9 +137,7 @@ export const IG_TREND_LINES = [
 export const IG_EMPTY_METRICS = {
   follows: 0, followers: 0, follow_trim: 0, follower_trim: 0, posts: 0,
   dm_send: 0, dm_reply: 0, ig_offer: 0, ig_apo_get: 0, ig_apo_exec: 0,
-  ig_apo_cxl: 0, ig_test_close: 0, ig_ng: 0, ig_muchaku: 0, ig_line_exchange: 0,
-  ig_doin_get: 0, ig_doin_get_cxl: 0, ig_doin_exec: 0, ig_doin_exec_cxl: 0,
-  ig_mendan_get: 0, ig_mendan_exec: 0, ig_seiyaku: 0, ig_cooling_off: 0, blocked: false,
+  ig_doin_get: 0, ig_doin_exec: 0, ig_seiyaku: 0, blocked: false,
 }
 
 // Instagram 目標値のデフォルト（DEFAULT_GOALSのインスタ版・進捗バー用）
