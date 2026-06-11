@@ -36,9 +36,12 @@ export function SettingsView() {
 
   // settingsが変わったらlocalBudgetsを同期
   // (useEffect使わず、未入力ならDBの値を使う)
+  // 予算は CW: b_apo_get / IG: b_ig_posts いずれも「b_<key>」に保存されるので直読みする。
+  // （extractBudgets はCWキーのみ対象でIG予算を拾えず、保存しても0表示に戻るバグを防ぐ）
   const getBudgetVal = (key: string) => {
     if (key in localBudgets) return localBudgets[key]
-    return budgets[key] > 0 ? String(budgets[key]) : ''
+    const stored = rawGoals[`b_${key}`]
+    return stored && stored > 0 ? String(stored) : ''
   }
 
   const { mutate: saveSettings, isPending: isSaving } = useMutation({
