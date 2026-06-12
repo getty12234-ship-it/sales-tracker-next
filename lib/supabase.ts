@@ -101,11 +101,21 @@ export type InstagramMetrics = {
   dm_send: number          // DM送信（新規送信数）
   dm_reply: number         // DM返信（新規返信数）
   ig_offer: number         // オファー
-  ig_apo_get: number       // アポ
+  ig_apo_get: number       // アポ獲得
   ig_apo_exec: number      // アポ実施（実施数）
+  ig_apo_cxl: number       // アポCXL（キャンセル）
+  ig_test_close: number    // テストクロ
+  ig_ng: number            // NG
+  ig_muchaku: number       // 無着地
+  ig_line_exchange: number // LINE交換
   ig_doin_get: number      // 動員獲得
+  ig_doin_get_cxl: number  // 動員獲得CXL
   ig_doin_exec: number     // 動員実施
+  ig_doin_exec_cxl: number // 動員実施CXL
+  ig_mendan_get: number    // 面談獲得
+  ig_mendan_exec: number   // 面談実施
   ig_seiyaku: number       // 成約
+  ig_cooling_off: number   // クーリングOFF
   blocked: boolean         // その日ブロックされたか
   created_at?: string
 }

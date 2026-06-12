@@ -346,11 +346,18 @@ export function InstagramView() {
         .filter(p => p.フォロワー > 0 || p.フォロー > 0)
 
   // 入力テーブルのグループ定義
+  // 入力テーブルのグループ定義（その他の獲得方法と同じ商談フロー項目＋インスタ固有の集客/ストック/削り）
   const tableGroups = [
     { group: 'ストック（累計）', stock: true, fields: [{ key: 'follows', label: 'フォロー', color: '#ec4899' }, { key: 'followers', label: 'フォロワー', color: '#f472b6' }] },
-    { group: '投稿', stock: false, fields: IG_POST_FIELDS },
     { group: '削り', stock: false, fields: IG_TRIM_FIELDS },
-    { group: '商談フロー', stock: false, fields: IG_FUNNEL.map(({ key, label, color }) => ({ key, label, color })) },
+    { group: '集客（DM）', stock: false, fields: [{ key: 'dm_send', label: 'DM送信', color: '#60a5fa' }, { key: 'dm_reply', label: 'DM返信', color: '#38bdf8' }] },
+    { group: '投稿', stock: false, fields: [{ key: 'posts', label: '投稿', color: '#a78bfa' }] },
+    { group: 'アポ', stock: false, fields: [{ key: 'ig_apo_get', label: 'アポ獲得', color: '#a78bfa' }, { key: 'ig_apo_exec', label: 'アポ実施', color: '#06b6d4' }, { key: 'ig_apo_cxl', label: 'アポCXL', color: '#fb7185' }] },
+    { group: 'テスト・オファー', stock: false, fields: [{ key: 'ig_test_close', label: 'テストクロ', color: '#a78bfa' }, { key: 'ig_offer', label: 'オファー', color: '#f59e0b' }] },
+    { group: 'NG・無着地', stock: false, fields: [{ key: 'ig_ng', label: 'NG', color: '#fb923c' }, { key: 'ig_muchaku', label: '無着地', color: '#f87171' }] },
+    { group: 'LINE交換', stock: false, fields: [{ key: 'ig_line_exchange', label: 'LINE交換', color: '#14b8a6' }] },
+    { group: '動員', stock: false, fields: [{ key: 'ig_doin_get', label: '動員獲得', color: '#a855f7' }, { key: 'ig_doin_get_cxl', label: '動員獲得CXL', color: '#fb7185' }, { key: 'ig_doin_exec', label: '動員実施', color: '#8b5cf6' }, { key: 'ig_doin_exec_cxl', label: '動員実施CXL', color: '#fb7185' }] },
+    { group: '面談・成約', stock: false, fields: [{ key: 'ig_mendan_get', label: '面談獲得', color: '#818cf8' }, { key: 'ig_mendan_exec', label: '面談実施', color: '#6366f1' }, { key: 'ig_seiyaku', label: '成約', color: '#22c55e' }, { key: 'ig_cooling_off', label: 'クーリングOFF', color: '#94a3b8' }] },
   ]
 
   return (
