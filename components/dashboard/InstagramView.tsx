@@ -97,11 +97,13 @@ export function InstagramView() {
   })
 
   const ym = currentYearMonth()
+  // ※ キーは UnifiedSummary の ['ig_monthly_all']（フラット配列）と必ず別にする。
+  //    同キーだと shape 違いのキャッシュを共有して x.metrics=undefined → クラッシュする。
   const { data: monthlyMetricsList = [] } = useQuery({
-    queryKey: ['ig_monthly_all', accounts.map(a => a.id).join(','), ym],
+    queryKey: ['ig_monthly_grouped', accounts.map(a => a.id).join(','), ym],
     queryFn: async () => {
       const results = await Promise.all(accounts.map(acc => getInstagramMonthlyMetrics(acc.id, ym)))
-      return accounts.map((acc, i) => ({ account: acc, metrics: results[i] }))
+      return accounts.map((acc, i) => ({ account: acc, metrics: results[i] || [] }))
     },
     enabled: accounts.length > 0,
   })
@@ -139,6 +141,7 @@ export function InstagramView() {
     mutationFn: (id: string) => deleteInstagramAccount(id),
     onSuccess: (deletedId) => {
       queryClient.invalidateQueries({ queryKey: ['ig_accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['ig_monthly_grouped'] })
       queryClient.invalidateQueries({ queryKey: ['ig_monthly_all'] })
       if (selectedAccountId === deletedId) setSelectedAccountId(null)
     },
@@ -193,6 +196,7 @@ export function InstagramView() {
         if (idx >= 0) { const n = [...old]; n[idx] = data; return n }
         return [...old, data]
       })
+      queryClient.invalidateQueries({ queryKey: ['ig_monthly_grouped'] })
       queryClient.invalidateQueries({ queryKey: ['ig_monthly_all'] })
     },
   })
@@ -859,7 +863,8 @@ function IgKpiCard({
 
 // 月間集計（ストック=最新 / フロー=合計）
 function monthAgg(metrics: InstagramMetrics[]): Record<string, number> {
-  const sorted = [...metrics].sort((a, b) => a.date.localeCompare(b.date))
+  const arr = Array.isArray(metrics) ? metrics : [] // 防御：配列以外が来ても全画面クラッシュさせない
+  const sorted = [...arr].sort((a, b) => a.date.localeCompare(b.date))
   const out: Record<string, number> = {}
   IG_METRIC_FIELDS.forEach(({ key, stock }) => {
     if (stock) {
@@ -867,7 +872,7 @@ function monthAgg(metrics: InstagramMetrics[]): Record<string, number> {
       for (let i = sorted.length - 1; i >= 0; i--) { const x = num(sorted[i][key as keyof InstagramMetrics]); if (x > 0) { latest = x; break } }
       out[key] = latest
     } else {
-      out[key] = metrics.reduce((s, m) => s + num(m[key as keyof InstagramMetrics]), 0)
+      out[key] = arr.reduce((s, m) => s + num(m[key as keyof InstagramMetrics]), 0)
     }
   })
   return out
