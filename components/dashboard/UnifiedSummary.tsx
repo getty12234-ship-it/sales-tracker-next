@@ -150,7 +150,9 @@ export function UnifiedSummary() {
     const total = otherVal + igVal
     const weekVal = (otherWeekTotals[k.key] || 0) + (k.igKey ? (igWeekTotals[k.igKey] || 0) : 0)
     const lastWeekVal = (otherLastWeekTotals[k.key] || 0) + (k.igKey ? (igLastWeekTotals[k.igKey] || 0) : 0)
-    const budget = (budgets[k.key] || 0) + (k.igKey ? igBudget(k.igKey) : 0)
+    const cwBudgetVal = budgets[k.key] || 0
+    const igBudgetVal = k.igKey ? igBudget(k.igKey) : 0
+    const budget = cwBudgetVal + igBudgetVal
     const goal = cwGoal(k.key) + (k.igKey ? igGoal(k.igKey) : 0)
     const paceBase = budget > 0 ? budget : goal
     const cumTarget = paceBase > 0 ? Math.round(cumulativeBudgetTarget(paceBase, ym) * 10) / 10 : 0
@@ -158,7 +160,7 @@ export function UnifiedSummary() {
     const goalPace = goal > 0 ? cumulativeBudgetTarget(goal, ym) : 0
     const reqDaily = paceBase > 0 ? requiredDailyFromNow(paceBase, total, ym) : 0
     const rate = pct(total, goal)
-    return { ...k, otherVal, igVal, total, weekVal, lastWeekVal, budget, goal, paceBase, cumTarget, budgetPace, goalPace, reqDaily, rate }
+    return { ...k, otherVal, igVal, total, weekVal, lastWeekVal, cwBudgetVal, igBudgetVal, budget, goal, paceBase, cumTarget, budgetPace, goalPace, reqDaily, rate }
   })
 
   return (
@@ -191,6 +193,43 @@ export function UnifiedSummary() {
             onChange={e => handleGoalChange(e.target.value)}
             placeholder={'今月の目標・予算・狙いを自由に記入...\n例）成約予算3件／アポ獲得50件・実施30件\n　　売上目標◯◯円。今月のテーマは「テスクロ完走率UP」'}
           />
+        </CardContent>
+      </Card>
+
+      {/* 今月の予算（その他＋インスタ合算） */}
+      <Card className="bg-slate-900 border-slate-800 border-l-2 border-l-amber-500/60">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
+            💰 今月の予算（その他＋インスタ合算）
+            <span className="text-[11px] font-normal text-slate-500">{ym.replace('-', '年')}月・チャネル別と合計</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0 overflow-x-auto">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-slate-800 text-[11px] text-slate-500">
+                <th className="text-left px-4 py-2 font-semibold whitespace-nowrap">KPI</th>
+                <th className="text-right px-3 py-2 font-semibold whitespace-nowrap">その他予算</th>
+                <th className="text-right px-3 py-2 font-semibold whitespace-nowrap text-pink-400">インスタ予算</th>
+                <th className="text-right px-4 py-2 font-semibold whitespace-nowrap text-amber-300">今月の予算<br/>（合計）</th>
+                <th className="text-right px-4 py-2 font-semibold whitespace-nowrap text-indigo-300">目標（合計）</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.filter(r => r.budget > 0 || r.goal > 0).map(r => (
+                <tr key={r.key} className={`border-b border-slate-800/40 hover:bg-slate-800/20 ${r.important ? 'bg-slate-800/30' : ''}`}>
+                  <td className="px-4 py-2 font-semibold whitespace-nowrap" style={{ color: r.color }}>{r.important && '★ '}{r.label}</td>
+                  <td className="px-3 py-2 text-right font-mono text-slate-300">{r.cwBudgetVal || <span className="text-slate-700">—</span>}</td>
+                  <td className="px-3 py-2 text-right font-mono text-slate-300">{r.igKey ? (r.igBudgetVal || <span className="text-slate-700">—</span>) : <span className="text-slate-700">—</span>}</td>
+                  <td className="px-4 py-2 text-right font-mono font-bold text-amber-300">{r.budget || <span className="text-slate-600">—</span>}</td>
+                  <td className="px-4 py-2 text-right font-mono text-indigo-200">{r.goal || <span className="text-slate-600">—</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="px-4 py-2 text-[10px] text-slate-600 leading-relaxed">
+            「今月の予算（合計）」＝その他の獲得方法の予算＋インスタの予算。設定ページで各チャネル別に設定できます（未設定は—）。
+          </div>
         </CardContent>
       </Card>
 
