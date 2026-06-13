@@ -133,6 +133,8 @@ export function MultiPaceCard({
   label: string; color: string; important?: boolean
   windows: PaceWindow[]; footer?: React.ReactNode
 }) {
+  // 3窓(月間/今週/先週)を同一スケールで並べる＝バーの長さが実数の大小と一致する（窓ごと別スケールだと小さい今週が大きい月間より長く見える乖離になる）
+  const sharedScale = Math.max(1, ...windows.map(w => Math.max(w.budget, w.goal, w.value)))
   return (
     <Card className={`bg-slate-900 border-slate-800 ${important ? 'ring-1 ring-indigo-500/30' : ''}`}>
       <CardContent className="p-3">
@@ -152,6 +154,7 @@ export function MultiPaceCard({
               <PaceBarTrack
                 value={w.value} budget={w.budget} goal={w.goal}
                 budgetPace={w.budgetPace} goalPace={w.goalPace} color={color} height="h-2"
+                scaleOverride={sharedScale}
               />
             </div>
           ))}
