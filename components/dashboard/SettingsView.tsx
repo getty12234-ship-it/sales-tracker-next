@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Plus, Trash2, Users, Target, Wallet } from 'lucide-react'
+import { Plus, Trash2, Users, Wallet } from 'lucide-react'
 
 export function SettingsView() {
   const { currentMember, setCurrentMember, members: allMembers, setMembers, currentTeam } = useAppState()
@@ -53,20 +53,6 @@ export function SettingsView() {
       // チームサマリーで使う全員設定キャッシュも更新
       queryClient.invalidateQueries({ queryKey: ['all_members_settings'] })
       setLocalBudgets({})
-      syncEvents.emit('saved')
-      setTimeout(() => syncEvents.emit('idle'), 2000)
-    },
-    onError: () => syncEvents.emit('error'),
-  })
-
-  // 目標のみ保存（予算は変更しない）
-  const { mutate: saveGoalsOnly } = useMutation({
-    mutationFn: (newGoals: Record<string, number>) =>
-      upsertSettings(currentMember!.id, newGoals),
-    onMutate: () => syncEvents.emit('saving'),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings', currentMember?.id] })
-      queryClient.invalidateQueries({ queryKey: ['all_members_settings'] })
       syncEvents.emit('saved')
       setTimeout(() => syncEvents.emit('idle'), 2000)
     },
@@ -352,9 +338,10 @@ export function SettingsView() {
                   // その他：入力中の値＞DB。目標は予算×1.2。未設定(予算0)は0＝DEFAULTを混ぜない（統合サマリーと一致）
                   const cwB = parseFloat(getBudgetVal(r.cw)) || 0
                   const cwGoal = cwB > 0 ? Math.ceil(cwB * 1.2) : 0
-                  // インスタ：設定値のみ（未設定は0。合算にデフォルトは足さない＝統合サマリーと一致）
+                  // インスタ：予算>0の時だけ目標を立てる。未設定(予算0)は0＝旧DEFAULT焼き込み残骸(ig_ig_*)を拾わない
+                  // （統合/チーム/施策シートは resolveIgGoalCombined の予算ゲートで0になるので、ここも0で一致させる）
                   const igB = r.ig ? (parseFloat(getBudgetVal(`ig_${r.ig}`)) || 0) : 0
-                  const igGoal = r.ig ? (igB > 0 ? Math.ceil(igB * 1.2) : (rawGoals[`ig_${r.ig}`] ?? 0)) : 0
+                  const igGoal = r.ig ? (igB > 0 ? Math.ceil(igB * 1.2) : 0) : 0
                   const totalB = cwB + igB
                   const totalGoal = cwGoal + igGoal
                   return (
@@ -375,38 +362,8 @@ export function SettingsView() {
           </CardContent>
         </Card>
       )}
-
-      {/* 目標のみ手動設定（予算未設定の場合のフォールバック） */}
-      {currentMember && Object.values(budgets).every(v => v === 0) && (
-        <Card className="bg-slate-900 border-slate-800">
-          <CardHeader>
-            <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
-              <Target className="w-4 h-4 text-indigo-400" />
-              目標のみ設定（予算未設定時）
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-xs text-slate-500">予算が未設定の場合、個別に目標を設定できます。</p>
-            {KPI_SUMMARY.map(({ key, label, color }) => (
-              <div key={key} className="flex items-center gap-4">
-                <label className="text-sm text-slate-400 w-28" style={{ color }}>{label}</label>
-                <Input
-                  type="number"
-                  min={0}
-                  className="bg-slate-950 border-slate-700 text-sm h-8 w-24 text-center"
-                  value={goals[key] ?? DEFAULT_GOALS[key] ?? 0}
-                  onChange={e => {
-                    // 土台は rawGoals（DBの実値のみ）。DEFAULT_GOALSを土台にすると未設定KPIにDEFAULTが焼き込まれるので使わない
-                    const next = { ...rawGoals, [key]: parseInt(e.target.value) || 0 }
-                    saveGoalsOnly(next)
-                  }}
-                />
-                <span className="text-xs text-slate-600">/ 月</span>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
+      {/* 「目標のみ設定」カードは廃止: 予算なしで保存した目標は resolveCwGoal の予算ゲートで全画面0になり
+          『入力できるが効かない』死にUIだった。目標は予算入力(予算×1.2自動)に一本化する。 */}
     </div>
   )
 }

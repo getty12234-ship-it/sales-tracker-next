@@ -62,14 +62,23 @@ export function Header() {
     }
   }, [currentTeam, members, isAdmin, currentMember, setCurrentMember])
 
-  // 初回: 管理者はコアチームの最初のメンバーを自動選択
+  // 初回/未選択時: 管理者のメンバー自動選択
   useEffect(() => {
     if (!isAdmin) return
     if (!currentMember && members.length > 0) {
-      const coreMembers = members.filter(m => (m.team || 'top') === 'core' && !m.is_admin)
-      setCurrentMember(coreMembers[0] || members.find(m => !m.is_admin) || null)
+      // まず現在のチームから選ぶ
+      const inTeam = members.filter(m => (m.team || 'top') === currentTeam && !m.is_admin)
+      if (inTeam.length > 0) { setCurrentMember(inTeam[0]); return }
+      // 現在のチームが空なら、メンバーのいるチームへ切替えて選ぶ。
+      // ※ currentTeam も同時に同期しないと、上の「空チーム→null化」Effect と振動して
+      //    Maximum update depth exceeded（無限ループ）でダッシュボードがクラッシュする。
+      const any = members.find(m => !m.is_admin)
+      if (any) {
+        setCurrentTeam((any.team as 'core' | 'top' | 'second' | 'third' | 'jigyo') || 'top')
+        setCurrentMember(any)
+      }
     }
-  }, [members, currentMember, isAdmin, setCurrentMember])
+  }, [members, currentMember, currentTeam, isAdmin, setCurrentMember, setCurrentTeam])
 
   // 同期状態の購読
   useEffect(() => {

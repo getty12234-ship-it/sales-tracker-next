@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useAppState } from '@/lib/store'
 import { getAllMembersMetrics, getAllMembersSettings, getInstagramAccounts, getInstagramMetricsByAccounts } from '@/lib/queries'
-import { today, getWeekStart, currentYearMonth } from '@/lib/date-utils'
+import { today, getWeekStart, currentYearMonth, endOfMonth } from '@/lib/date-utils'
 import { KPI_SUMMARY, METRIC_FIELDS } from '@/lib/constants'
 import { extractBudgets } from '@/lib/supabase'
 import { resolveCwGoal, resolveIgGoalCombined } from '@/lib/goals'
@@ -18,8 +18,9 @@ function getPeriodRange(period: Period): [string, string] {
   const t = today()
   if (period === 'today') return [t, t]
   if (period === 'week') return [getWeekStart(t), t]
+  // 月レンジ終端は暦月末に揃える（他ビューは月末まで集計。today終端だと未来日先行入力を取りこぼし数値が割れる）
   const ym = currentYearMonth()
-  return [`${ym}-01`, t]
+  return [`${ym}-01`, endOfMonth(ym)]
 }
 
 export function TeamSummary() {
@@ -69,6 +70,10 @@ export function TeamSummary() {
 
   // KPIキー → インスタ列キー（post→posts、それ以外は ig_<key>）
   const igFieldFor = (key: string) => (key === 'post' ? 'posts' : `ig_${key}`)
+  // インスタ実績を合算するKPI＝統合サマリーの UNIFIED_KPIS で igKey!=null の集合と完全一致させる。
+  // ※ ここに無いKPI(post/offer/line_exchange/mendan_exec)へIG加算すると、CWのみ表示の
+  //    統合サマリー/その他ビューと同一KPIの実績が食い違う（例: 面談実施 4 vs 6）。
+  const IG_ADD_KEYS = new Set(['apo_get', 'apo_exec', 'doin_get', 'doin_exec', 'seiyaku'])
 
   // メンバーごとに集計（その他＋インスタ合算。統合サマリーと完全に同じ規約）
   const memberStats = useMemo(() => {
@@ -81,8 +86,9 @@ export function TeamSummary() {
           (sum, m) => sum + ((m[key as keyof DailyMetrics] as number) || 0), 0
         )
       })
-      // 表示対象KPIにインスタ実績を加算（post→posts / それ以外 ig_<key>）
+      // 統合サマリーと同じKPIにだけインスタ実績を加算（他は加算するとCWのみ表示の他画面とズレる）
       KPI_SUMMARY.forEach(({ key }) => {
+        if (!IG_ADD_KEYS.has(key)) return
         const igField = igFieldFor(key)
         totals[key] = (totals[key] || 0) + memberIg.reduce(
           (sum, m) => sum + ((m[igField as keyof InstagramMetrics] as number) || 0), 0
@@ -96,7 +102,9 @@ export function TeamSummary() {
       const budgets = extractBudgets(rawGoals)
       const goals: Record<string, number> = {}
       KPI_SUMMARY.forEach(({ key }) => {
-        goals[key] = resolveCwGoal(rawGoals, budgets, key) + resolveIgGoalCombined(rawGoals, igFieldFor(key))
+        // IG目標も実績と同じKPIにだけ合算する（offer/line_exchange等を足すとCWのみ表示の他画面と目標が割れる）
+        const ig = IG_ADD_KEYS.has(key) ? resolveIgGoalCombined(rawGoals, igFieldFor(key)) : 0
+        goals[key] = resolveCwGoal(rawGoals, budgets, key) + ig
       })
       return { member, totals, goals }
     })

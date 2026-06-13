@@ -185,8 +185,11 @@ export function elapsedUsableDays(yearMonth: string): number {
   const [year, month] = yearMonth.split('-').map(Number)
   const now = new Date()
   const isCurrentMonth = now.getFullYear() === year && now.getMonth() + 1 === month
+  const ymNum = year * 12 + month
+  const nowNum = now.getFullYear() * 12 + (now.getMonth() + 1)
   const lastDay = new Date(year, month, 0).getDate()
-  const todayDate = isCurrentMonth ? now.getDate() : lastDay
+  // 当月=今日 / 過去月=満了(月末) / 未来月=0(まだ1日も経過していない＝累積目標0・遅れ判定もしない)
+  const todayDate = isCurrentMonth ? now.getDate() : (ymNum > nowNum ? 0 : lastDay)
   return Math.min(todayDate, usableDays(yearMonth))
 }
 
@@ -195,15 +198,11 @@ export function remainingUsableDays(yearMonth: string): number {
   return Math.max(0, usableDays(yearMonth) - elapsedUsableDays(yearMonth))
 }
 
-// 当日までの累積目標 = 日当たり × min(今日の日付, 使える日数)
+// 当日までの累積目標 = 日当たり × 経過した使える日数（当月=今日 / 過去月=満了 / 未来月=0）
 export function cumulativeBudgetTarget(budget: number, yearMonth: string): number {
-  const [year, month] = yearMonth.split('-').map(Number)
-  const now = new Date()
-  const isCurrentMonth = now.getFullYear() === year && now.getMonth() + 1 === month
-  const todayDate = isCurrentMonth ? now.getDate() : new Date(year, month, 0).getDate()
   const days = usableDays(yearMonth)
   if (!budget || !days) return 0
-  const elapsed = Math.min(todayDate, days)
+  const elapsed = elapsedUsableDays(yearMonth)
   return Math.round((budget / days) * elapsed * 10) / 10
 }
 
@@ -249,16 +248,17 @@ export function weeklyCumulativeTarget(monthlyValue: number, weekStart: string):
   return weeklyAccrual(monthlyValue, weekStart, true)
 }
 
-// 今から必要な日当たり = (予算 - 達成数) / 残り使える日数
+// 今から必要な日当たり = (予算 - 達成数) / 残り使える日数。
+// 「今から」は当月のみ意味を持つ（過去/未来月は0）。残りは remainingUsableDays と同一基準で、
+// 月末3日(残り0)では下限1にクランプせず0を返す（「残り0日」なのに「N本/日必要」の矛盾を防ぐ）。
 export function requiredDailyFromNow(budget: number, achieved: number, yearMonth: string): number {
   const [year, month] = yearMonth.split('-').map(Number)
   const now = new Date()
   const isCurrentMonth = now.getFullYear() === year && now.getMonth() + 1 === month
-  const todayDate = isCurrentMonth ? now.getDate() : new Date(year, month, 0).getDate()
   const days = usableDays(yearMonth)
-  // 残り日数: 当月でなければ0、当月なら days - todayDate を1以上に
-  const remaining = isCurrentMonth ? Math.max(1, days - todayDate) : 0
-  if (!remaining || !budget) return 0
+  if (!isCurrentMonth || !budget || !days) return 0
+  const remaining = Math.max(0, days - elapsedUsableDays(yearMonth))
+  if (!remaining) return 0
   const deficit = budget - achieved
   if (deficit <= 0) return 0
   return Math.ceil((deficit / remaining) * 10) / 10
