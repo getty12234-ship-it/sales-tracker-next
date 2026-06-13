@@ -13,21 +13,27 @@ import { cumulativeBudgetTarget, weeklyTarget, weeklyCumulativeTarget } from '@/
 const round1 = (n: number) => Math.round(n * 10) / 10
 
 // バー本体（フィル＋2本のペース線）
+//   scaleOverride: 複数バー(月間/今週/先週など)を同一スケールで並べたい時に共通の満額スケールを渡す
 export function PaceBarTrack({
-  value, budget, goal, budgetPace, goalPace, color, height = 'h-2.5',
+  value, budget, goal, budgetPace, goalPace, color, height = 'h-2.5', scaleOverride,
 }: {
   value: number; budget: number; goal: number
-  budgetPace: number; goalPace: number; color: string; height?: string
+  budgetPace: number; goalPace: number; color: string; height?: string; scaleOverride?: number
 }) {
-  // 予算・目標・実績の最大を100%としてスケール
-  const scaleMax = Math.max(goal, budget, value, 1)
+  // ライン位置の基準＝満額スケール（共通指定があればそれ。無ければこのバーの予算/目標の大きい方）。
+  // value をスケールに混ぜると実績が増えるほどペース線が左へ動いて不安定になるため、基準は満額側に固定し、
+  // value が満額を超える時だけスケールを value まで広げてフィルを100%キャップする。
+  const baseScale = (scaleOverride && scaleOverride > 0) ? scaleOverride : Math.max(goal, budget, 1)
+  const scaleMax = Math.max(baseScale, value, 1)
   const actualPct = Math.min(100, (value / scaleMax) * 100)
   const budgetLine = budget > 0 ? Math.min(100, (budgetPace / scaleMax) * 100) : null
   const goalLine = goal > 0 ? Math.min(100, (goalPace / scaleMax) * 100) : null
-  const onBudgetPace = budgetPace <= 0 || value >= budgetPace
+  // 遅れ判定：予算があれば予算ペース、なければ目標ペースで判定（予算未設定KPIで赤が死なないように）
+  const pace = budget > 0 ? budgetPace : (goal > 0 ? goalPace : 0)
+  const onPace = pace <= 0 || value >= pace
   const hitTarget = (budget || goal) > 0 && value >= (budget || goal)
-  // 達成→緑 / 予算ペース内→本来色 / 遅れ→赤
-  const fillColor = hitTarget ? '#22c55e' : onBudgetPace ? color : '#ef4444'
+  // 達成(予算=絶対達成クリア)→緑 / ペース内→本来色 / 遅れ→赤
+  const fillColor = hitTarget ? '#22c55e' : onPace ? color : '#ef4444'
 
   return (
     <div className={`relative w-full ${height} bg-slate-800 rounded-full overflow-hidden`}>

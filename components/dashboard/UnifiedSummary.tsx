@@ -132,8 +132,10 @@ export function UnifiedSummary() {
 
   // 目標・予算
   const rawGoals = (settings?.goals as Record<string, number>) || {}
-  const goals = { ...DEFAULT_GOALS, ...rawGoals }
   const budgets = extractBudgets(rawGoals)
+  // CWの目標は「予算が設定されているKPIの確定目標のみ」採用する。
+  // ※ DEFAULT_GOALS を合算に混ぜるとIG設定済み×CW未設定のメンバーで目標/達成率/色/🩵線が全部水増しされるバグになる（予算は設定値のみなので非対称も発生）。
+  const cwGoal = (key: string): number => (budgets[key] > 0 ? (rawGoals[key] || 0) : 0)
   // インスタ目標/予算：設定がある場合のみ採用。未設定は 0（合算を勝手に膨らませない＝設定した数字がそのまま出る）
   const igGoal = (key: string): number => (rawGoals[`ig_${key}`] !== undefined ? rawGoals[`ig_${key}`] : 0)
   const igBudget = (key: string): number => (rawGoals[`b_ig_${key}`] !== undefined ? rawGoals[`b_ig_${key}`] : 0)
@@ -149,7 +151,7 @@ export function UnifiedSummary() {
     const weekVal = (otherWeekTotals[k.key] || 0) + (k.igKey ? (igWeekTotals[k.igKey] || 0) : 0)
     const lastWeekVal = (otherLastWeekTotals[k.key] || 0) + (k.igKey ? (igLastWeekTotals[k.igKey] || 0) : 0)
     const budget = (budgets[k.key] || 0) + (k.igKey ? igBudget(k.igKey) : 0)
-    const goal = (goals[k.key] || 0) + (k.igKey ? igGoal(k.igKey) : 0)
+    const goal = cwGoal(k.key) + (k.igKey ? igGoal(k.igKey) : 0)
     const paceBase = budget > 0 ? budget : goal
     const cumTarget = paceBase > 0 ? Math.round(cumulativeBudgetTarget(paceBase, ym) * 10) / 10 : 0
     const budgetPace = budget > 0 ? cumulativeBudgetTarget(budget, ym) : 0
