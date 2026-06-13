@@ -76,24 +76,31 @@ export function SettingsView() {
   const handleSave = () => {
     if (!currentMember) return
     // localBudgets または DB 値から予算を確定
+    // 既存の手動目標などを土台に残しつつ、DEFAULTは絶対に焼き込まない（焼くと全ビューの「未設定=0」判定が壊れる）
     const finalBudgets: Record<string, number> = {}
-    const finalGoals: Record<string, number> = {}
+    const finalGoals: Record<string, number> = { ...rawGoals }
     KPI_SUMMARY.forEach(({ key }) => {
-      const bStr = getBudgetVal(key)
-      const b = parseFloat(bStr) || 0
+      const b = parseFloat(getBudgetVal(key)) || 0
       finalBudgets[key] = b
-      // 目標 = 予算 × 1.2（小数点以下切り上げ）
-      finalGoals[key] = b > 0 ? Math.ceil(b * 1.2) : (DEFAULT_GOALS[key] || 0)
+      if (b > 0) {
+        // 目標 = 予算 × 1.2（小数点以下切り上げ）
+        finalGoals[key] = Math.ceil(b * 1.2)
+      }
+      // b<=0 の目標はDEFAULTを焼かない（手動目標があれば土台のrawGoalsで残る／無ければ未設定=0のまま）
     })
     // インスタ用：ig_ プレフィックス付きで goals/budgets 両方を埋め込む
     IG_KPI_SUMMARY.forEach(({ key }) => {
       const igKey = `ig_${key}`
-      const bStr = getBudgetVal(igKey)
-      const b = parseFloat(bStr) || 0
-      // 予算は b_ig_xxx に、目標は ig_xxx に入れる（extractBudgetsはKPI_KEYSのみ対象なので
-      // ig_側はupsertSettingsで生goalsに統合される）
-      finalGoals[`b_${igKey}`] = b
-      finalGoals[igKey] = b > 0 ? Math.ceil(b * 1.2) : (IG_DEFAULT_GOALS[key] || 0)
+      const b = parseFloat(getBudgetVal(igKey)) || 0
+      if (b > 0) {
+        // 予算は b_ig_xxx に、目標は ig_xxx に入れる
+        finalGoals[`b_${igKey}`] = b
+        finalGoals[igKey] = Math.ceil(b * 1.2)
+      } else {
+        // 未設定：予算・目標キーごと消す（DEFAULTを焼かない＝未設定=0。既存の焼き込み汚染もこの保存で除去される）
+        delete finalGoals[`b_${igKey}`]
+        delete finalGoals[igKey]
+      }
     })
     saveSettings({ goals: finalGoals, budgets: finalBudgets })
   }
@@ -342,9 +349,9 @@ export function SettingsView() {
                   { label: '面談実施', cw: 'mendan_exec', ig: '' },
                   { label: '成約',     cw: 'seiyaku',    ig: 'ig_seiyaku' },
                 ].map(r => {
-                  // その他：入力中の値＞DB。目標は予算×1.2（未設定はDEFAULT_GOALS）
+                  // その他：入力中の値＞DB。目標は予算×1.2。未設定(予算0)は0＝DEFAULTを混ぜない（統合サマリーと一致）
                   const cwB = parseFloat(getBudgetVal(r.cw)) || 0
-                  const cwGoal = cwB > 0 ? Math.ceil(cwB * 1.2) : (goals[r.cw] || 0)
+                  const cwGoal = cwB > 0 ? Math.ceil(cwB * 1.2) : 0
                   // インスタ：設定値のみ（未設定は0。合算にデフォルトは足さない＝統合サマリーと一致）
                   const igB = r.ig ? (parseFloat(getBudgetVal(`ig_${r.ig}`)) || 0) : 0
                   const igGoal = r.ig ? (igB > 0 ? Math.ceil(igB * 1.2) : (rawGoals[`ig_${r.ig}`] ?? 0)) : 0
@@ -389,7 +396,8 @@ export function SettingsView() {
                   className="bg-slate-950 border-slate-700 text-sm h-8 w-24 text-center"
                   value={goals[key] ?? DEFAULT_GOALS[key] ?? 0}
                   onChange={e => {
-                    const next = { ...goals, [key]: parseInt(e.target.value) || 0 }
+                    // 土台は rawGoals（DBの実値のみ）。DEFAULT_GOALSを土台にすると未設定KPIにDEFAULTが焼き込まれるので使わない
+                    const next = { ...rawGoals, [key]: parseInt(e.target.value) || 0 }
                     saveGoalsOnly(next)
                   }}
                 />

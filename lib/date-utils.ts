@@ -178,6 +178,23 @@ export function dailyBudgetRate(budget: number, yearMonth: string): number {
   return budget / days
 }
 
+// 経過した「使える日数」= min(今日の日付, 使える日数)。非当月は満了(=usableDays)。
+//   ※ ペース計算(cumulativeBudgetTarget/weeklyAccrual)と同じ usableDays(月末-3) 暦日基準。
+//      「経過/残り」表示で営業日(passedWorkdays)と暦日(remainingWorkdays)を混在させない統一基準。
+export function elapsedUsableDays(yearMonth: string): number {
+  const [year, month] = yearMonth.split('-').map(Number)
+  const now = new Date()
+  const isCurrentMonth = now.getFullYear() === year && now.getMonth() + 1 === month
+  const lastDay = new Date(year, month, 0).getDate()
+  const todayDate = isCurrentMonth ? now.getDate() : lastDay
+  return Math.min(todayDate, usableDays(yearMonth))
+}
+
+// 残りの「使える日数」= usableDays - 経過。非当月は0。
+export function remainingUsableDays(yearMonth: string): number {
+  return Math.max(0, usableDays(yearMonth) - elapsedUsableDays(yearMonth))
+}
+
 // 当日までの累積目標 = 日当たり × min(今日の日付, 使える日数)
 export function cumulativeBudgetTarget(budget: number, yearMonth: string): number {
   const [year, month] = yearMonth.split('-').map(Number)

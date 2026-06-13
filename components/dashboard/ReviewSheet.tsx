@@ -4,8 +4,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAppState } from '@/lib/store'
 import { getDailyMetrics, getWeeklyReview, upsertWeeklyReview, getSettings, getStCases, getInstagramAccounts, getInstagramMetricsByAccounts } from '@/lib/queries'
 import { getWeekDays, pct, getYearMonth, usableDays, getMonthDays, cumulativeBudgetTarget, requiredDailyFromNow, weeklyTarget, weeklyCumulativeTarget } from '@/lib/date-utils'
-import { METRIC_FIELDS, DEFAULT_GOALS, KPI_SUMMARY, IG_FUNNEL, IG_KPI_SUMMARY, IG_DEFAULT_GOALS } from '@/lib/constants'
+import { METRIC_FIELDS, KPI_SUMMARY, IG_FUNNEL, IG_KPI_SUMMARY } from '@/lib/constants'
 import { PaceRow, PaceLegend } from './PaceBar'
+import { resolveCwGoal, resolveIgGoalTotal, resolveIgBudgetTotal, resolveIgGoalCombined, resolveIgBudgetCombined } from '@/lib/goals'
 import { extractBudgets } from '@/lib/supabase'
 import { syncEvents } from './Header'
 import { useEffect, useState, useRef } from 'react'
@@ -211,7 +212,6 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false, monthY
   }
 
   const rawGoals = (settings?.goals as Record<string, number>) || {}
-  const goalVals: Record<string, number> = { ...DEFAULT_GOALS, ...rawGoals }
   const budgets = extractBudgets(rawGoals)
 
   const totals: Record<string, number> = {}
@@ -228,21 +228,16 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false, monthY
   const wkTgt = (monthly: number) => weeklyTarget(monthly, weekStart)       // この週フルの目安
   const wkPace = (monthly: number) => weeklyCumulativeTarget(monthly, weekStart) // 今(今週/先週)ここまでの目安
   const cwBudget = (cw: string) => budgets[cw] || 0
-  const cwGoal = (cw: string) => goalVals[cw] || 0
-  // IG予算/目標は設定画面が二重プレフィックスで保存（goal=ig_<key> / budget=b_ig_<key>、key例 ig_apo_get）
-  const igBud = (ig: string) => (ig ? (rawGoals[`b_ig_${ig}`] ?? 0) : 0)
-  const igGl = (ig: string) => (ig ? (rawGoals[`ig_${ig}`] ?? 0) : 0)
-  // インスタ単体カード用：カスタム設定 ＞ IGデフォルト目標（DM900等）でフォールバック
-  const igGoalD = (key: string) => {
-    const c = rawGoals[`ig_${key}`]
-    if (c !== undefined && c > 0) return c
-    return IG_DEFAULT_GOALS[key] || 0
-  }
-  const igBudgetD = (key: string) => {
-    const c = rawGoals[`b_ig_${key}`]
-    if (c !== undefined && c > 0) return c
-    return igGoalD(key)
-  }
+  // CW目標：予算設定済みKPIのみ（DEFAULT_GOALSは混ぜない＝統合サマリー/他ビューと一致）
+  const cwGoal = (cw: string) => resolveCwGoal(rawGoals, budgets, cw)
+  // 統合実績カード用：合算ビューは未設定IGをデフォルトで膨らませない（統合サマリーと一致）
+  const igBud = (ig: string) => resolveIgBudgetCombined(rawGoals, ig)
+  const igGl = (ig: string) => resolveIgGoalCombined(rawGoals, ig)
+  // インスタ単体カード用：全アカウント合計基準（設定値＞IGデフォルト×アカウント数）。
+  // ※ InstagramView の全アカ統合表示と同一ロジック。×n を入れないと藤澤(5アカ)で goal=1 vs IG画面=5 の逆転になる。
+  const igAccCount = igAccounts.length
+  const igGoalD = (key: string) => resolveIgGoalTotal(rawGoals, key, igAccCount)
+  const igBudgetD = (key: string) => resolveIgBudgetTotal(rawGoals, key, igAccCount)
   const paceWord = readOnly ? '先週' : '今週'
 
   if (!currentMember) {

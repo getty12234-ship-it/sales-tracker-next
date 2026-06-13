@@ -3,10 +3,11 @@
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useAppState } from '@/lib/store'
-import { getAllMembersMetrics, getAllMembersSettings } from '@/lib/queries'
+import { getAllMembersMetrics, getAllMembersSettings, getInstagramAccounts, getInstagramMetricsByAccounts } from '@/lib/queries'
 import { today, getWeekStart, currentYearMonth } from '@/lib/date-utils'
-import { KPI_SUMMARY, DEFAULT_GOALS, METRIC_FIELDS } from '@/lib/constants'
-import type { DailyMetrics } from '@/lib/supabase'
+import { KPI_SUMMARY, METRIC_FIELDS } from '@/lib/constants'
+import { extractBudgets } from '@/lib/supabase'
+import type { DailyMetrics, InstagramMetrics } from '@/lib/supabase'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Users, ChevronUp, ChevronDown, Minus } from 'lucide-react'
 
@@ -43,21 +44,63 @@ export function TeamSummary() {
     enabled: memberIds.length > 0,
   })
 
-  // メンバーごとに集計
+  // インスタ：チームメンバー全員のアカウント → そのメトリクスを期間取得（統合サマリーと数字を一致させるため合算する）
+  const { data: igAccounts = [] } = useQuery({
+    queryKey: ['team_ig_accounts', memberIds.join(',')],
+    queryFn: async () => {
+      const all = await getInstagramAccounts()
+      return all.filter(a => memberIds.includes(a.member_id))
+    },
+    enabled: memberIds.length > 0,
+  })
+  const igAccountIds = igAccounts.map(a => a.id)
+  const { data: igMetrics = [] } = useQuery({
+    queryKey: ['team_ig_metrics', igAccountIds.join(','), from, to],
+    queryFn: () => getInstagramMetricsByAccounts(igAccountIds, from, to),
+    enabled: igAccountIds.length > 0,
+  })
+  // account_id → member_id 対応表
+  const accToMember = useMemo(() => {
+    const m: Record<string, string> = {}
+    igAccounts.forEach(a => { m[a.id] = a.member_id })
+    return m
+  }, [igAccounts])
+
+  // KPIキー → インスタ列キー（post→posts、それ以外は ig_<key>）
+  const igFieldFor = (key: string) => (key === 'post' ? 'posts' : `ig_${key}`)
+
+  // メンバーごとに集計（その他＋インスタ合算。統合サマリーと完全に同じ規約）
   const memberStats = useMemo(() => {
     return members.map(member => {
       const memberMetrics = allMetrics.filter(m => m.member_id === member.id)
+      const memberIg = igMetrics.filter(m => accToMember[m.account_id] === member.id)
       const totals: Record<string, number> = {}
       METRIC_FIELDS.forEach(({ key }) => {
         totals[key] = memberMetrics.reduce(
           (sum, m) => sum + ((m[key as keyof DailyMetrics] as number) || 0), 0
         )
       })
+      // 表示対象KPIにインスタ実績を加算（post→posts / それ以外 ig_<key>）
+      KPI_SUMMARY.forEach(({ key }) => {
+        const igField = igFieldFor(key)
+        totals[key] = (totals[key] || 0) + memberIg.reduce(
+          (sum, m) => sum + ((m[igField as keyof InstagramMetrics] as number) || 0), 0
+        )
+      })
+      // 目標＝その他目標（予算設定済みのみ）＋インスタ目標（設定済みのみ）。DEFAULT_GOALS は混ぜない（水増しバグ防止）
       const settings = allSettings.find(s => s.member_id === member.id)
-      const goals = (settings?.goals as Record<string, number>) || DEFAULT_GOALS
+      const rawGoals = (settings?.goals as Record<string, number>) || {}
+      const budgets = extractBudgets(rawGoals)
+      const goals: Record<string, number> = {}
+      KPI_SUMMARY.forEach(({ key }) => {
+        const cwGoal = budgets[key] > 0 ? (rawGoals[key] || 0) : 0
+        const igGoalKey = `ig_${igFieldFor(key)}`
+        const igGoal = rawGoals[igGoalKey] !== undefined ? rawGoals[igGoalKey] : 0
+        goals[key] = cwGoal + igGoal
+      })
       return { member, totals, goals }
     })
-  }, [members, allMetrics, allSettings])
+  }, [members, allMetrics, igMetrics, accToMember, allSettings])
 
   // ソート
   const sorted = useMemo(() => {
@@ -110,6 +153,7 @@ export function TeamSummary() {
           <Users className="w-5 h-5 text-indigo-400" />
           チームサマリー
           <span className="text-xs font-normal text-slate-500 ml-1">{members.length}名</span>
+          <span className="text-[10px] font-normal text-slate-600 ml-1">その他＋インスタ合算</span>
         </h1>
         {/* 期間タブ */}
         <div className="flex gap-1 bg-slate-800 p-1 rounded-lg">
@@ -265,7 +309,7 @@ export function TeamSummary() {
                     {/* 各KPI */}
                     {KPI_SUMMARY.map(({ key, color, important }) => {
                       const val = s.totals[key] || 0
-                      const goal = s.goals[key] || DEFAULT_GOALS[key] || 0
+                      const goal = s.goals[key] || 0
                       const rate = goal > 0 ? Math.min(100, Math.round((val / goal) * 100)) : 0
                       const isActiveSort = sortKey === key
 

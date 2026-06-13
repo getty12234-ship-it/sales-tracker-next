@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect, useRef } from 'react'
 import { useAppState } from '@/lib/store'
 import { getDailyMetrics, getSettings, getStCases, upsertStCase, deleteStCase, getWeeklyReviews, upsertMonthlyGoal } from '@/lib/queries'
-import { getMonthDays, getWeekDays, addWeeks, currentYearMonth, pct, remainingWorkdays, passedWorkdays, totalWorkdays, usableDays, dailyBudgetRate, cumulativeBudgetTarget, requiredDailyFromNow, endOfMonth } from '@/lib/date-utils'
+import { getMonthDays, getWeekDays, addWeeks, currentYearMonth, pct, usableDays, remainingUsableDays, dailyBudgetRate, cumulativeBudgetTarget, requiredDailyFromNow, endOfMonth } from '@/lib/date-utils'
 import { KPI_SUMMARY, DEFAULT_GOALS, METRIC_FIELDS } from '@/lib/constants'
 import type { DailyMetrics, StCase } from '@/lib/supabase'
 import { extractBudgets } from '@/lib/supabase'
@@ -135,9 +135,9 @@ export function SummaryDashboard() {
   const goals = { ...DEFAULT_GOALS, ...rawGoals }
   const budgets = extractBudgets(rawGoals)
   const hasBudgets = Object.values(budgets).some(v => v > 0)
-  const remaining = remainingWorkdays(ym)
-  const passed = passedWorkdays(ym)
-  const total = totalWorkdays(ym)
+  // 経過/残りは usableDays(月末-3) 暦日基準で統一（営業日と暦日の混在を解消）
+  const remaining = remainingUsableDays(ym)
+  const total = usableDays(ym)
 
   // 無着地・NG理由集計
   const muchaReasonMap: Record<string, number> = {}
@@ -183,7 +183,7 @@ export function SummaryDashboard() {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 text-xs text-slate-400">
             <Calendar className="w-3.5 h-3.5" />
-            残り営業日: <span className="text-slate-200 font-semibold">{remaining}日</span>
+            残り日数: <span className="text-slate-200 font-semibold">{remaining}日</span>
             <span className="text-slate-600">/ {total}日</span>
           </div>
           <Button
@@ -221,7 +221,7 @@ export function SummaryDashboard() {
             <CardTitle className="text-sm text-amber-400 flex items-center gap-2">
               📊 予算ペース分析
               <span className="text-xs font-normal text-slate-500">
-                使える日数: {usableDays(ym)}日 / 今から残り: {Math.max(0, usableDays(ym) - new Date().getDate())}日
+                使える日数: {usableDays(ym)}日 / 今から残り: {remainingUsableDays(ym)}日
               </span>
             </CardTitle>
           </CardHeader>

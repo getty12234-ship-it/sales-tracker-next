@@ -3,9 +3,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAppState } from '@/lib/store'
 import { getInstagramAccounts, getInstagramMetrics, getInstagramMonthlyMetrics, getInstagramMetricsByAccounts, upsertInstagramMetrics, createInstagramAccount, updateInstagramAccountStats, deleteInstagramAccount, getSettings } from '@/lib/queries'
-import { getWeekDays, addWeeks, today, getWeekStart, formatDateJa, currentYearMonth, pct, cumulativeBudgetTarget, requiredDailyFromNow, passedWorkdays, remainingWorkdays, totalWorkdays } from '@/lib/date-utils'
+import { getWeekDays, addWeeks, today, getWeekStart, formatDateJa, pct, elapsedUsableDays, remainingUsableDays } from '@/lib/date-utils'
 import { MultiPaceCard, buildPaceWindows } from './PaceBar'
-import { IG_METRIC_FIELDS, IG_STOCK_FIELDS, IG_TRIM_FIELDS, IG_POST_FIELDS, IG_FUNNEL, IG_TREND_LINES, IG_EMPTY_METRICS, IG_DEFAULT_GOALS, IG_KPI_SUMMARY } from '@/lib/constants'
+import { resolveIgGoalTotal, resolveIgBudgetTotal } from '@/lib/goals'
+import { IG_METRIC_FIELDS, IG_STOCK_FIELDS, IG_TRIM_FIELDS, IG_POST_FIELDS, IG_FUNNEL, IG_TREND_LINES, IG_EMPTY_METRICS, IG_KPI_SUMMARY } from '@/lib/constants'
 import { syncEvents } from './Header'
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -36,7 +37,7 @@ function BarWithTooltip({ tooltip, children }: { tooltip: string; children: Reac
 }
 
 export function InstagramView() {
-  const { currentMember, currentWeekStart } = useAppState()
+  const { currentMember, currentWeekStart, currentYearMonth: ym } = useAppState()
   const queryClient = useQueryClient()
   const weekDays = getWeekDays(currentWeekStart)
   const lastWeekStart = addWeeks(currentWeekStart, -1)
@@ -96,7 +97,8 @@ export function InstagramView() {
     onError: () => syncEvents.emit('error'),
   })
 
-  const ym = currentYearMonth()
+  // ym は WeekNav が駆動する選択月（state）。date-utilsのcurrentYearMonth()で当月固定にすると
+  //    今週バー(過去月)と月間バー(当月)が同一画面で月混在するため必ずstate由来にする。
   // ※ キーは UnifiedSummary の ['ig_monthly_all']（フラット配列）と必ず別にする。
   //    同キーだと shape 違いのキャッシュを共有して x.metrics=undefined → クラッシュする。
   const { data: monthlyMetricsList = [] } = useQuery({
@@ -772,23 +774,16 @@ function IgGoalProgress({
   const totals = totalsOverride ?? monthAgg(monthMetrics)
   const weekTotals = weekTotalsOverride ?? monthAgg(weekMetrics)
   const lastWeekTotals = lastWeekTotalsOverride ?? monthAgg(lastWeekMetrics)
-  const passed = passedWorkdays(ym)
-  const remaining = remainingWorkdays(ym)
+  // 経過/残りは usableDays(月末-3) 暦日基準で統一（営業日passedWorkdaysと暦日remainingWorkdaysの混在を解消）
+  const passed = elapsedUsableDays(ym)
+  const remaining = remainingUsableDays(ym)
 
-  // 設定値（b_ig_/ig_）は「全アカウント合計」の月間予算/目標として扱う。
+  // 設定値（b_ig_/ig_）は「全アカウント合計」の月間予算/目標として扱う（解決は lib/goals.ts に集約）。
   //   - カスタム設定あり → その値が合計
   //   - 未設定 → 公式デフォルト(1アカ基準) × アカウント数 ＝ 合計
   const n = Math.max(1, totalAccounts)
-  const igGoalTotal = (key: string): number => {
-    const c = rawGoals[`ig_${key}`]
-    if (c !== undefined && c > 0) return c
-    return (IG_DEFAULT_GOALS[key] || 0) * n
-  }
-  const igBudgetTotal = (key: string): number => {
-    const c = rawGoals[`b_ig_${key}`]
-    if (c !== undefined && c > 0) return c
-    return igGoalTotal(key) // デフォルトは予算=目標
-  }
+  const igGoalTotal = (key: string): number => resolveIgGoalTotal(rawGoals, key, n)
+  const igBudgetTotal = (key: string): number => resolveIgBudgetTotal(rawGoals, key, n)
   // 表示スケール：全アカウント統合=合計そのまま / 単一アカウント=1アカ分（合計÷アカ数）
   const scale = isAllMode ? 1 : 1 / n
   const igGoal = (key: string): number => Math.round(igGoalTotal(key) * scale * 10) / 10

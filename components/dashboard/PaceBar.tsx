@@ -25,9 +25,11 @@ export function PaceBarTrack({
   // value が満額を超える時だけスケールを value まで広げてフィルを100%キャップする。
   const baseScale = (scaleOverride && scaleOverride > 0) ? scaleOverride : Math.max(goal, budget, 1)
   const scaleMax = Math.max(baseScale, value, 1)
+  // フィルは scaleMax 基準で 100% キャップ（実績が満額超でもバーが溢れない）
   const actualPct = Math.min(100, (value / scaleMax) * 100)
-  const budgetLine = budget > 0 ? Math.min(100, (budgetPace / scaleMax) * 100) : null
-  const goalLine = goal > 0 ? Math.min(100, (goalPace / scaleMax) * 100) : null
+  // ペース線は満額(baseScale)基準で固定する。scaleMax(=value込み)で割ると実績が増えるほど線が左へ動いて不安定になる。
+  const budgetLine = budget > 0 ? Math.min(100, (budgetPace / baseScale) * 100) : null
+  const goalLine = goal > 0 ? Math.min(100, (goalPace / baseScale) * 100) : null
   // 遅れ判定：予算があれば予算ペース、なければ目標ペースで判定（予算未設定KPIで赤が死なないように）
   const pace = budget > 0 ? budgetPace : (goal > 0 ? goalPace : 0)
   const onPace = pace <= 0 || value >= pace
@@ -133,8 +135,9 @@ export function MultiPaceCard({
   label: string; color: string; important?: boolean
   windows: PaceWindow[]; footer?: React.ReactNode
 }) {
-  // 3窓(月間/今週/先週)を同一スケールで並べる＝バーの長さが実数の大小と一致する（窓ごと別スケールだと小さい今週が大きい月間より長く見える乖離になる）
-  const sharedScale = Math.max(1, ...windows.map(w => Math.max(w.budget, w.goal, w.value)))
+  // 3窓(月間/今週/先週)を同一スケールで並べる＝バーの長さが実数の大小と一致する（窓ごと別スケールだと小さい今週が大きい月間より長く見える乖離になる）。
+  // value は除外（外れ値1件で全窓のバー・線が左端に潰れるのを防ぐ。実績の満額超は各バー内 scaleMax で100%キャップ）
+  const sharedScale = Math.max(1, ...windows.map(w => Math.max(w.budget, w.goal)))
   return (
     <Card className={`bg-slate-900 border-slate-800 ${important ? 'ring-1 ring-indigo-500/30' : ''}`}>
       <CardContent className="p-3">

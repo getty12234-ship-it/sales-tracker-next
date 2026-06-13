@@ -4,10 +4,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect, useRef } from 'react'
 import { useAppState } from '@/lib/store'
 import { getDailyMetrics, getSettings, getInstagramAccounts, getInstagramMonthlyMetrics, getInstagramMetricsByAccounts, upsertMonthlyGoal } from '@/lib/queries'
-import { getMonthDays, getWeekDays, addWeeks, pct, remainingWorkdays, passedWorkdays, cumulativeBudgetTarget, requiredDailyFromNow } from '@/lib/date-utils'
-import { DEFAULT_GOALS, METRIC_FIELDS, IG_METRIC_FIELDS } from '@/lib/constants'
+import { getMonthDays, getWeekDays, addWeeks, pct, elapsedUsableDays, remainingUsableDays, cumulativeBudgetTarget, requiredDailyFromNow } from '@/lib/date-utils'
+import { METRIC_FIELDS, IG_METRIC_FIELDS } from '@/lib/constants'
 import type { DailyMetrics, InstagramMetrics } from '@/lib/supabase'
 import { extractBudgets } from '@/lib/supabase'
+import { resolveCwGoal, resolveIgGoalCombined, resolveIgBudgetCombined } from '@/lib/goals'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
 import { syncEvents } from './Header'
@@ -130,18 +131,17 @@ export function UnifiedSummary() {
     igLastWeekTotals[key] = sumIg(igLastWeek, key)
   })
 
-  // 目標・予算
+  // 目標・予算（解決ロジックは lib/goals.ts に集約＝全ビューで同一・DEFAULT焼き込みを混ぜない）
   const rawGoals = (settings?.goals as Record<string, number>) || {}
   const budgets = extractBudgets(rawGoals)
-  // CWの目標は「予算が設定されているKPIの確定目標のみ」採用する。
-  // ※ DEFAULT_GOALS を合算に混ぜるとIG設定済み×CW未設定のメンバーで目標/達成率/色/🩵線が全部水増しされるバグになる（予算は設定値のみなので非対称も発生）。
-  const cwGoal = (key: string): number => (budgets[key] > 0 ? (rawGoals[key] || 0) : 0)
-  // インスタ目標/予算：設定がある場合のみ採用。未設定は 0（合算を勝手に膨らませない＝設定した数字がそのまま出る）
-  const igGoal = (key: string): number => (rawGoals[`ig_${key}`] !== undefined ? rawGoals[`ig_${key}`] : 0)
-  const igBudget = (key: string): number => (rawGoals[`b_ig_${key}`] !== undefined ? rawGoals[`b_ig_${key}`] : 0)
+  const cwGoal = (key: string): number => resolveCwGoal(rawGoals, budgets, key)
+  // インスタ目標/予算（合算ビュー）：設定がある場合のみ採用。未設定は0（合算を勝手に膨らませない）
+  const igGoal = (key: string): number => resolveIgGoalCombined(rawGoals, key)
+  const igBudget = (key: string): number => resolveIgBudgetCombined(rawGoals, key)
 
-  const remaining = remainingWorkdays(ym)
-  const passed = passedWorkdays(ym)
+  // 経過/残りは usableDays(月末-3) 暦日基準で統一（営業日と暦日の混在を解消・合計=usableDays）
+  const remaining = remainingUsableDays(ym)
+  const passed = elapsedUsableDays(ym)
 
   // 各KPIの合算行を計算
   const rows = UNIFIED_KPIS.map(k => {
@@ -270,7 +270,7 @@ export function UnifiedSummary() {
             })}
           </div>
           <div className="mt-2 text-[10px] text-slate-600 leading-relaxed">
-            各KPIを「月間／今週／先週」で表示。🟡予算ライン・🩵目標ラインは各期間で“今ここまで到達しておきたい”位置（先週は週フルの目安）。「月間 今から必要」＝残り営業日で月予算に届かせるのに毎日必要な本数。
+            各KPIを「月間／今週／先週」で表示。🟡予算ライン・🩵目標ラインは各期間で“今ここまで到達しておきたい”位置（先週は週フルの目安）。「月間 今から必要」＝残り日数で月予算に届かせるのに毎日必要な本数。
           </div>
         </CardContent>
       </Card>
