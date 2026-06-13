@@ -274,7 +274,7 @@ export function SettingsView() {
           </CardHeader>
           <CardContent>
             <p className="text-xs text-slate-500 mb-3">
-              インスタ単独のKPI予算。空欄なら公式デフォルト（1アカ：投稿30/月・DM900/月 等）×アカウント数を使用します。
+              ここは<span className="text-slate-300">全アカウント合計</span>の月間予算です（例：DM送信1246＝全アカ合計）。空欄なら公式デフォルト（1アカ：投稿30/月・DM900/月 等）×アカウント数を合計値として使用。インスタ画面では単一アカ＝合計÷アカ数、全アカウント統合＝合計のまま表示します。
             </p>
             <div className="grid grid-cols-3 gap-2 mb-2 px-1">
               <span className="text-xs text-slate-500">KPI</span>

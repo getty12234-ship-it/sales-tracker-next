@@ -540,7 +540,8 @@ export function InstagramView() {
           <IgGoalProgress
             account={effectiveAccount}
             label={allMode ? '全アカウント統合' : undefined}
-            accountCount={allMode ? accounts.length : 1}
+            totalAccounts={accounts.length}
+            isAllMode={allMode}
             monthMetrics={selectedMonthMetrics}
             weekMetrics={metrics}
             lastWeekMetrics={lastWeekMetrics}
@@ -750,7 +751,7 @@ export function InstagramView() {
 // ===== 目標進捗（KPIごとに 月間／今週／先週 の3期間バー） =====
 function IgGoalProgress({
   account, monthMetrics, weekMetrics, lastWeekMetrics, ym, weekStart, lastWeekStart, rawGoals,
-  totalsOverride, weekTotalsOverride, lastWeekTotalsOverride, accountCount = 1, label,
+  totalsOverride, weekTotalsOverride, lastWeekTotalsOverride, totalAccounts = 1, isAllMode = false, label,
 }: {
   account: InstagramAccount | null
   monthMetrics: InstagramMetrics[]
@@ -763,7 +764,8 @@ function IgGoalProgress({
   totalsOverride?: Record<string, number>
   weekTotalsOverride?: Record<string, number>
   lastWeekTotalsOverride?: Record<string, number>
-  accountCount?: number
+  totalAccounts?: number   // メンバーの総アカウント数
+  isAllMode?: boolean      // 全アカウント統合表示か（false=単一アカウント）
   label?: string
 }) {
   if (!account && !totalsOverride) return null
@@ -773,24 +775,31 @@ function IgGoalProgress({
   const passed = passedWorkdays(ym)
   const remaining = remainingWorkdays(ym)
 
-  // 目標・予算の解決ロジック（カスタム > デフォルト）。統合時はアカウント数で按分倍率をかける
-  const igGoal = (key: string): number => {
-    const customKey = `ig_${key}`
-    const base = (rawGoals[customKey] !== undefined && rawGoals[customKey] > 0) ? rawGoals[customKey] : (IG_DEFAULT_GOALS[key] || 0)
-    return base * accountCount
+  // 設定値（b_ig_/ig_）は「全アカウント合計」の月間予算/目標として扱う。
+  //   - カスタム設定あり → その値が合計
+  //   - 未設定 → 公式デフォルト(1アカ基準) × アカウント数 ＝ 合計
+  const n = Math.max(1, totalAccounts)
+  const igGoalTotal = (key: string): number => {
+    const c = rawGoals[`ig_${key}`]
+    if (c !== undefined && c > 0) return c
+    return (IG_DEFAULT_GOALS[key] || 0) * n
   }
-  const igBudget = (key: string): number => {
-    const customKey = `b_ig_${key}`
-    const base = (rawGoals[customKey] !== undefined && rawGoals[customKey] > 0) ? rawGoals[customKey] : 0
-    return (base > 0 ? base : igGoal(key) / accountCount) * accountCount
+  const igBudgetTotal = (key: string): number => {
+    const c = rawGoals[`b_ig_${key}`]
+    if (c !== undefined && c > 0) return c
+    return igGoalTotal(key) // デフォルトは予算=目標
   }
+  // 表示スケール：全アカウント統合=合計そのまま / 単一アカウント=1アカ分（合計÷アカ数）
+  const scale = isAllMode ? 1 : 1 / n
+  const igGoal = (key: string): number => Math.round(igGoalTotal(key) * scale * 10) / 10
+  const igBudget = (key: string): number => Math.round(igBudgetTotal(key) * scale * 10) / 10
 
   return (
     <Card className="bg-slate-900 border-slate-800">
       <CardHeader className="pb-2">
         <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
           <Target className="w-4 h-4 text-pink-400" />目標進捗（月間／今週／先週）
-          <span className="text-[11px] font-normal text-slate-500">{label ?? account?.name} ・ {ym.replace('-', '年')}月 経過 {passed}日 / 残り {remaining}日{accountCount > 1 ? `（予算×${accountCount}アカ）` : ''}</span>
+          <span className="text-[11px] font-normal text-slate-500">{label ?? account?.name} ・ {ym.replace('-', '年')}月 経過 {passed}日 / 残り {remaining}日{n > 1 ? (isAllMode ? `（全${n}アカ合計）` : `（1アカ分＝全${n}アカ合計÷${n}）`) : ''}</span>
         </CardTitle>
       </CardHeader>
       <CardContent>
