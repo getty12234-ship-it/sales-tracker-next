@@ -6,6 +6,7 @@ import { getInstagramAccounts, getInstagramMetrics, getInstagramMonthlyMetrics, 
 import { getWeekDays, addWeeks, today, getWeekStart, formatDateJa, pct, elapsedUsableDays, remainingUsableDays } from '@/lib/date-utils'
 import { MultiPaceCard, buildPaceWindows } from './PaceBar'
 import { resolveIgGoalTotal, resolveIgBudgetTotal } from '@/lib/goals'
+import { toCsv } from '@/lib/utils'
 import { IG_METRIC_FIELDS, IG_STOCK_FIELDS, IG_TRIM_FIELDS, IG_POST_FIELDS, IG_FUNNEL, IG_TREND_LINES, IG_EMPTY_METRICS, IG_KPI_SUMMARY } from '@/lib/constants'
 import { syncEvents } from './Header'
 import { useState, useCallback, useEffect, useRef } from 'react'
@@ -91,6 +92,13 @@ export function InstagramView() {
           return [...old, data]
         }
       )
+      // 他ビューのIGキャッシュを無効化（CW側のDailyMetricsTableと対称化）。
+      // これがないと統合サマリー/その他週/チームサマリー/施策シート/IG月次で最大30秒古い値が残る。
+      queryClient.invalidateQueries({ queryKey: ['ig_monthly_grouped'] })
+      queryClient.invalidateQueries({ queryKey: ['ig_monthly_all'] })
+      queryClient.invalidateQueries({ queryKey: ['ig_metrics_member_week'] })
+      queryClient.invalidateQueries({ queryKey: ['ig_week_all'] })
+      queryClient.invalidateQueries({ queryKey: ['team_ig_metrics'] })
       syncEvents.emit('saved')
       setTimeout(() => syncEvents.emit('idle'), 2000)
     },
@@ -845,7 +853,7 @@ function exportMonthlyCsv(list: { account: { name: string }; metrics: InstagramM
     const v = monthAgg(metrics)
     return [account.name, ...IG_METRIC_FIELDS.map(f => String(v[f.key])), `${pct(v.dm_reply, v.dm_send)}%`, `${pct(v.ig_apo_get, v.ig_offer)}%`, `${pct(v.ig_seiyaku, v.ig_doin_exec)}%`]
   })
-  const csv = [headers, ...rows].map(r => r.join(',')).join('\n')
+  const csv = toCsv([headers, ...rows])
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')

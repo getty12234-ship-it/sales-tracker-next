@@ -459,7 +459,7 @@ function GoalBlockCard({ block, isFirst, isLast, onMeta, onMoveUp, onMoveDown, o
                   className="w-full bg-slate-900/60 border border-slate-700/60 rounded-md px-1 py-1.5 text-sm text-slate-100 text-center outline-none focus:border-slate-500"
                   value={block.kpis?.[k.key] ?? ''}
                   placeholder="—"
-                  onChange={e => onKpi(k.key, parseInt(e.target.value) || 0)}
+                  onChange={e => { const n = Math.floor(Number(e.target.value)); onKpi(k.key, Number.isFinite(n) && n > 0 ? n : 0) }}
                   onFocus={e => e.target.select()}
                 />
               </div>

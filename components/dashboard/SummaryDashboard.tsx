@@ -5,9 +5,11 @@ import { useState, useEffect, useRef } from 'react'
 import { useAppState } from '@/lib/store'
 import { getDailyMetrics, getSettings, getStCases, upsertStCase, deleteStCase, getWeeklyReviews, upsertMonthlyGoal } from '@/lib/queries'
 import { getMonthDays, getWeekDays, addWeeks, currentYearMonth, pct, usableDays, remainingUsableDays, dailyBudgetRate, cumulativeBudgetTarget, requiredDailyFromNow, endOfMonth } from '@/lib/date-utils'
-import { KPI_SUMMARY, DEFAULT_GOALS, METRIC_FIELDS } from '@/lib/constants'
+import { KPI_SUMMARY, METRIC_FIELDS } from '@/lib/constants'
 import type { DailyMetrics, StCase } from '@/lib/supabase'
 import { extractBudgets } from '@/lib/supabase'
+import { resolveCwGoal } from '@/lib/goals'
+import { toCsv } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { TrendingUp, Target, Calendar, Download, Plus, Trash2 } from 'lucide-react'
@@ -132,7 +134,6 @@ export function SummaryDashboard() {
   })
 
   const rawGoals = (settings?.goals as Record<string, number>) || {}
-  const goals = { ...DEFAULT_GOALS, ...rawGoals }
   const budgets = extractBudgets(rawGoals)
   const hasBudgets = Object.values(budgets).some(v => v > 0)
   // 経過/残りは usableDays(月末-3) 暦日基準で統一（営業日と暦日の混在を解消）
@@ -160,7 +161,7 @@ export function SummaryDashboard() {
       m.date,
       ...METRIC_FIELDS.map(f => String((m[f.key as keyof DailyMetrics] as number) || 0))
     ])
-    const csv = [headers, ...rows].map(r => r.join(',')).join('\n')
+    const csv = toCsv([headers, ...rows])
     const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -205,7 +206,7 @@ export function SummaryDashboard() {
             weekVal: weekTotals[key] || 0,
             lastWeekVal: lastWeekTotals[key] || 0,
             monthlyBudget: budgets[key] || 0,
-            monthlyGoal: goals[key] || 0,
+            monthlyGoal: resolveCwGoal(rawGoals, budgets, key),
             ym, weekStart, lastWeekStart,
           })
           return (

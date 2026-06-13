@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect, useRef } from 'react'
 import { useAppState } from '@/lib/store'
 import { getDailyMetrics, getSettings, getInstagramAccounts, getInstagramMonthlyMetrics, getInstagramMetricsByAccounts, upsertMonthlyGoal } from '@/lib/queries'
-import { getMonthDays, getWeekDays, addWeeks, pct, elapsedUsableDays, remainingUsableDays, cumulativeBudgetTarget, requiredDailyFromNow } from '@/lib/date-utils'
+import { getMonthDays, getWeekDays, addWeeks, pct, today, getWeekStart, currentYearMonth, elapsedUsableDays, remainingUsableDays, cumulativeBudgetTarget, requiredDailyFromNow } from '@/lib/date-utils'
 import { METRIC_FIELDS, IG_METRIC_FIELDS } from '@/lib/constants'
 import type { DailyMetrics, InstagramMetrics } from '@/lib/supabase'
 import { extractBudgets } from '@/lib/supabase'
@@ -28,9 +28,13 @@ const UNIFIED_KPIS = [
 ] as const
 
 export function UnifiedSummary() {
-  const { currentMember, currentYearMonth: ym, currentWeekStart } = useAppState()
+  // 統合サマリーは WeekNav 非搭載ページ。global state(currentYearMonth/currentWeekStart)は
+  // 他ページのWeekNav操作でドリフトするため読まない。常に「当月・当週」をローカル算出する
+  // （state を書き換えないので WeekNav ページのナビ位置も壊さない）。
+  const { currentMember } = useAppState()
+  const ym = currentYearMonth()
   const monthDays = getMonthDays(ym)
-  const weekStart = currentWeekStart
+  const weekStart = getWeekStart(today())
   const lastWeekStart = addWeeks(weekStart, -1)
   const weekDays = getWeekDays(weekStart)
   const lastWeekDays = getWeekDays(lastWeekStart)

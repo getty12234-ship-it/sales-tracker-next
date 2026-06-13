@@ -7,6 +7,7 @@ import { getAllMembersMetrics, getAllMembersSettings, getInstagramAccounts, getI
 import { today, getWeekStart, currentYearMonth } from '@/lib/date-utils'
 import { KPI_SUMMARY, METRIC_FIELDS } from '@/lib/constants'
 import { extractBudgets } from '@/lib/supabase'
+import { resolveCwGoal, resolveIgGoalCombined } from '@/lib/goals'
 import type { DailyMetrics, InstagramMetrics } from '@/lib/supabase'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Users, ChevronUp, ChevronDown, Minus } from 'lucide-react'
@@ -87,16 +88,15 @@ export function TeamSummary() {
           (sum, m) => sum + ((m[igField as keyof InstagramMetrics] as number) || 0), 0
         )
       })
-      // 目標＝その他目標（予算設定済みのみ）＋インスタ目標（設定済みのみ）。DEFAULT_GOALS は混ぜない（水増しバグ防止）
+      // 目標解決は lib/goals.ts に集約（統合サマリーと完全に同じ＝CWは予算ゲート、IGは予算ゲートでDEFAULT焼き込み残骸を無視）。
+      // ※ resolveIgGoalCombined には単ig の igFieldFor(key)(='ig_apo_exec'/'posts')を渡す。内部で更に ig_/b_ig_ を付けるため
+      //    'ig_'+igFieldFor(key) を渡すと三重ig になり全IG目標が0に潰れる。
       const settings = allSettings.find(s => s.member_id === member.id)
       const rawGoals = (settings?.goals as Record<string, number>) || {}
       const budgets = extractBudgets(rawGoals)
       const goals: Record<string, number> = {}
       KPI_SUMMARY.forEach(({ key }) => {
-        const cwGoal = budgets[key] > 0 ? (rawGoals[key] || 0) : 0
-        const igGoalKey = `ig_${igFieldFor(key)}`
-        const igGoal = rawGoals[igGoalKey] !== undefined ? rawGoals[igGoalKey] : 0
-        goals[key] = cwGoal + igGoal
+        goals[key] = resolveCwGoal(rawGoals, budgets, key) + resolveIgGoalCombined(rawGoals, igFieldFor(key))
       })
       return { member, totals, goals }
     })

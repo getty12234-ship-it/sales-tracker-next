@@ -60,12 +60,14 @@ export function NippoView() {
   })
 
   useEffect(() => {
+    // フォームには保存済みの値だけを入れる。スケジュール動画(プリセット)は焼き込まない
+    // （未編集でも他フィールド保存時に video_url がプリセットで永続化されるのを防ぐ）。
     setForm({
-      video_url: report?.video_url || todayVideoFromSchedule || '',
+      video_url: report?.video_url || '',
       output: report?.output || '',
       gratitude: report?.gratitude || '',
     })
-  }, [report, todayVideoFromSchedule, selectedDate])
+  }, [report, selectedDate])
 
   const debouncedSave = (updates: Partial<typeof form>) => {
     if (!currentMember) return
@@ -83,7 +85,9 @@ export function NippoView() {
     }, 800)
   }
 
-  const videoId = extractYoutubeId(form.video_url)
+  // 表示はユーザーの上書き(form.video_url)＞スケジュール動画(プリセット)の順。表示だけで保存はしない。
+  const displayVideoUrl = form.video_url || todayVideoFromSchedule || ''
+  const videoId = extractYoutubeId(displayVideoUrl)
   const thumbUrl = videoId ? getYoutubeThumbnail(videoId) : null
 
   if (!currentMember) {
@@ -122,9 +126,9 @@ export function NippoView() {
             {/* URL入力 */}
             <Input
               className="bg-slate-950 border-slate-700 text-xs h-8"
-              value={form.video_url}
+              value={displayVideoUrl}
               onChange={e => debouncedSave({ video_url: e.target.value })}
-              placeholder="YouTube URL"
+              placeholder="YouTube URL（スケジュール動画を上書きする場合のみ入力）"
             />
 
             {/* 動画プレビュー */}

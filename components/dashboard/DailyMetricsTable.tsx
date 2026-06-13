@@ -4,8 +4,9 @@ import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAppState } from '@/lib/store'
 import { getDailyMetrics, upsertDailyMetrics, getWeeklyReview, upsertWeeklyReview } from '@/lib/queries'
-import { getWeekDays, formatDateJa, getYearMonth } from '@/lib/date-utils'
+import { getWeekDays, getWeekStart, formatDateJa, getYearMonth } from '@/lib/date-utils'
 import { METRIC_FIELDS, METRIC_CATEGORIES } from '@/lib/constants'
+import { toCsv } from '@/lib/utils'
 import { syncEvents } from './Header'
 import { useRef, useCallback } from 'react'
 import type { DailyMetrics } from '@/lib/supabase'
@@ -50,9 +51,14 @@ export function DailyMetricsTable() {
   const { mutateAsync: save } = useMutation({
     mutationFn: upsertDailyMetrics,
     onSuccess: (data) => {
-      // 週単位キャッシュを楽観的更新
+      // 保存対象は render スコープの currentMember/currentWeekStart ではなく「保存された行(data)」から導出する。
+      // ※ メンバー/週を切り替えた直後にデバウンス保存が発火しても、他メンバー・他週のキャッシュを汚染しない。
+      const mid = data.member_id
+      const wk = getWeekStart(data.date)
+      const savedYm = getYearMonth(data.date)
+      // 週単位キャッシュ（日別テーブル表示）を楽観的更新
       queryClient.setQueryData(
-        ['daily_metrics', currentMember?.id, currentWeekStart],
+        ['daily_metrics', mid, wk],
         (old: DailyMetrics[] = []) => {
           const idx = old.findIndex(m => m.date === data.date)
           if (idx >= 0) {
@@ -63,10 +69,10 @@ export function DailyMetricsTable() {
           return [...old, data]
         }
       )
-      // 月単位キャッシュを無効化（SummaryDashboard・ReviewSheet月次KPI連携）
-      const savedYm = getYearMonth(data.date)
-      queryClient.invalidateQueries({ queryKey: ['daily_metrics', currentMember?.id, savedYm] })
-      queryClient.invalidateQueries({ queryKey: ['daily_metrics_month', currentMember?.id, savedYm] })
+      // 月単位＋週単位キャッシュを無効化（UnifiedSummary/SummaryDashboard/ReviewSheet の月・今週・先週バー連携）
+      queryClient.invalidateQueries({ queryKey: ['daily_metrics', mid, savedYm] })
+      queryClient.invalidateQueries({ queryKey: ['daily_metrics_month', mid, savedYm] })
+      queryClient.invalidateQueries({ queryKey: ['daily_metrics_week', mid] })
 
       syncEvents.emit('saved')
       setTimeout(() => syncEvents.emit('idle'), 2000)
@@ -78,9 +84,10 @@ export function DailyMetricsTable() {
   const { mutateAsync: saveReview } = useMutation({
     mutationFn: upsertWeeklyReview,
     onSuccess: (data) => {
-      queryClient.setQueryData(['weekly_review', currentMember?.id, currentWeekStart], data)
+      // 保存された行(data)のメンバー/週で更新（renderスコープ参照だと切替直後の保存で他キャッシュを汚染）
+      queryClient.setQueryData(['weekly_review', data.member_id, data.week_start_date], data)
       // SummaryDashboard 月次集計の無着地/NG理由ランキングも最新化
-      queryClient.invalidateQueries({ queryKey: ['weekly_reviews_month', currentMember?.id] })
+      queryClient.invalidateQueries({ queryKey: ['weekly_reviews_month', data.member_id] })
     },
   })
 
@@ -147,7 +154,7 @@ export function DailyMetricsTable() {
       date,
       ...METRIC_FIELDS.map(f => String((metricsMap[date]?.[f.key as keyof DailyMetrics] as number) || 0))
     ])
-    const csv = [headers, ...rows].map(r => r.join(',')).join('\n')
+    const csv = toCsv([headers, ...rows])
     const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -182,6 +189,8 @@ export function DailyMetricsTable() {
     }
     await Promise.all(saves)
     queryClient.invalidateQueries({ queryKey: ['daily_metrics', currentMember.id] })
+    queryClient.invalidateQueries({ queryKey: ['daily_metrics_week', currentMember.id] })
+    queryClient.invalidateQueries({ queryKey: ['daily_metrics_month', currentMember.id] })
     e.target.value = ''
   }
 

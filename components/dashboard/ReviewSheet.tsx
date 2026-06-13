@@ -149,9 +149,10 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false, monthY
   const { mutateAsync: save } = useMutation({
     mutationFn: upsertWeeklyReview,
     onSuccess: (data) => {
-      queryClient.setQueryData(['weekly_review', currentMember?.id, weekStart], data)
+      // 保存された行(data)のメンバー/週で更新（renderスコープ参照だとメンバー/週切替直後の保存で他キャッシュを汚染）
+      queryClient.setQueryData(['weekly_review', data.member_id, data.week_start_date], data)
       // SummaryDashboard 月次集計の無着地/NG理由ランキングも最新化
-      queryClient.invalidateQueries({ queryKey: ['weekly_reviews_month', currentMember?.id] })
+      queryClient.invalidateQueries({ queryKey: ['weekly_reviews_month', data.member_id] })
       syncEvents.emit('saved')
       setTimeout(() => syncEvents.emit('idle'), 2000)
     },
