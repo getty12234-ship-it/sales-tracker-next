@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect, useRef } from 'react'
 import { useAppState } from '@/lib/store'
 import { getDailyMetrics, getSettings, getStCases, upsertStCase, deleteStCase, getWeeklyReviews, upsertMonthlyGoal } from '@/lib/queries'
-import { getMonthDays, getWeekDays, addWeeks, currentYearMonth, pct, usableDays, remainingUsableDays, dailyBudgetRate, cumulativeBudgetTarget, requiredDailyFromNow, endOfMonth } from '@/lib/date-utils'
+import { getMonthDays, getWeekDays, getWeekStart, addWeeks, currentYearMonth, pct, usableDays, remainingUsableDays, dailyBudgetRate, cumulativeBudgetTarget, requiredDailyFromNow, endOfMonth } from '@/lib/date-utils'
 import { KPI_SUMMARY, METRIC_FIELDS } from '@/lib/constants'
 import type { DailyMetrics, StCase } from '@/lib/supabase'
 import { extractBudgets } from '@/lib/supabase'
@@ -522,12 +522,10 @@ function buildWeeklyChartData(metrics: DailyMetrics[]) {
   const weekMap = new Map<string, Record<string, number>>()
 
   metrics.forEach(m => {
-    const d = new Date(m.date)
-    const dayOfWeek = d.getDay()
-    const diff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
-    const monday = new Date(d)
-    monday.setDate(d.getDate() + diff)
-    const key = `${monday.getMonth() + 1}/${monday.getDate()}週`
+    // 週の月曜は date-utils.getWeekStart（ローカルパース）で算出。new Date(str) はUTC解釈で
+    // 負UTC環境だと週バケットがずれるため、コードベース標準に統一する。
+    const [, mo, dd] = getWeekStart(m.date).split('-').map(Number)
+    const key = `${mo}/${dd}週`
 
     const existing = weekMap.get(key) || {}
     KPI_SUMMARY.forEach(({ key: field }) => {
