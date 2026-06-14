@@ -45,8 +45,11 @@ export function Header() {
   })
 
   useEffect(() => {
-    if (data) setMembers(data)
-  }, [data, setMembers])
+    if (!data) return
+    // 多層防御: 個人事業(jigyo)メンバーはオーナー本人以外のクライアント状態に入れない
+    // （UIタブ非表示＋RLSに加えた3層目。currentTeam='jigyo'をプログラム的にセットされてもデータを列挙させない）
+    setMembers(authMemberId === OWNER_MEMBER_ID ? data : data.filter(m => (m.team || 'top') !== 'jigyo'))
+  }, [data, setMembers, authMemberId])
 
   // チーム切り替え時: そのチームの最初のメンバーを自動選択（管理者のみ）
   useEffect(() => {

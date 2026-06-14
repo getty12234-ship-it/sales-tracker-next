@@ -76,12 +76,12 @@ export function UnifiedSummary() {
     enabled: !!currentMember,
   })
   const { data: igWeek = [] } = useQuery({
-    queryKey: ['ig_metrics_member_week', accountIds.join(','), weekStart],
+    queryKey: ['ig_metrics_member_week', currentMember?.id, weekStart, accountIds.join(',')],
     queryFn: () => getInstagramMetricsByAccounts(accountIds, weekDays[0], weekDays[6]),
     enabled: accountIds.length > 0,
   })
   const { data: igLastWeek = [] } = useQuery({
-    queryKey: ['ig_metrics_member_week', accountIds.join(','), lastWeekStart],
+    queryKey: ['ig_metrics_member_week', currentMember?.id, lastWeekStart, accountIds.join(',')],
     queryFn: () => getInstagramMetricsByAccounts(accountIds, lastWeekDays[0], lastWeekDays[6]),
     enabled: accountIds.length > 0,
   })
@@ -91,7 +91,16 @@ export function UnifiedSummary() {
   const savedMonthlyGoal = ((settings?.monthly_goals as Record<string, string>) || {})[ym] || ''
   const [goalText, setGoalText] = useState('')
   const goalTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  useEffect(() => { setGoalText(savedMonthlyGoal) }, [savedMonthlyGoal, ym])
+  // メンバー/月が変わった時だけ保存値をフォームへ同期する。保存由来(invalidate→再フェッチ)の savedMonthlyGoal 変化では
+  // 上書きしない＝入力中に保存が走っても続けて打った文字が巻き戻らない（ReviewSheet/NippoView と同じloadedKey方式）。
+  const loadedGoalKey = useRef<string | undefined>(undefined)
+  const goalKey = `${currentMember?.id}_${ym}`
+  useEffect(() => {
+    if (settings === undefined) return        // settings 読み込み中は同期しない
+    if (loadedGoalKey.current === goalKey) return
+    loadedGoalKey.current = goalKey
+    setGoalText(savedMonthlyGoal)
+  }, [settings, goalKey, savedMonthlyGoal])
   const { mutate: saveGoal } = useMutation({
     mutationFn: (text: string) => upsertMonthlyGoal(currentMember!.id, ym, text),
     onMutate: () => syncEvents.emit('saving'),

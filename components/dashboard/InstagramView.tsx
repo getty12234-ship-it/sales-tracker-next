@@ -194,10 +194,12 @@ export function InstagramView() {
 
   // 「現在の数値」フォロワー/フォロー中 → 今日の日次（ストック）に書き込む（双方向リンク用）
   const { mutate: saveTodayStock } = useMutation({
-    mutationFn: (patch: Partial<InstagramMetrics>) => {
-      const existing = (queryClient.getQueryData<InstagramMetrics[]>(['ig_metrics', effectiveAccountId, weekOfToday]) || [])
-        .find(m => m.date === todayStr)
-      return upsertInstagramMetrics({ account_id: effectiveAccountId!, date: todayStr, ...IG_EMPTY_METRICS, ...existing, ...patch })
+    mutationFn: async (patch: Partial<InstagramMetrics>) => {
+      // 今日の実レコードをサーバから取得してマージする。
+      // ※ ローカルキャッシュ(stale/未取得)を土台にすると、その日の dm_send 等フロー値が IG_EMPTY_METRICS の0で上書き消去される。
+      const rows = await getInstagramMetrics(effectiveAccountId!, todayStr, todayStr)
+      const existing = rows[0]
+      return upsertInstagramMetrics({ account_id: effectiveAccountId!, date: todayStr, ...IG_EMPTY_METRICS, ...(existing || {}), ...patch })
     },
     onSuccess: (data) => {
       // 今日が属する週のキャッシュを更新（表示中の週＝今週なら日次テーブルに即反映）
@@ -228,11 +230,9 @@ export function InstagramView() {
     statsTimer.current = setTimeout(() => {
       saveStats(next) // アカウントのスナップショット更新
       // フォロワー/フォロー中は「今日の日次（その日時点の現在値＝ストック）」にもリンク書き込み。
-      // 今日が表示中の週にある時だけ（他フィールドを誤って0で上書きしないよう、読込済みキャッシュがある時に限定）
-      if (currentWeekStart === weekOfToday) {
-        if (key === 'cur_followers') saveTodayStock({ followers: value })
-        if (key === 'cur_follows') saveTodayStock({ follows: value })
-      }
+      // saveTodayStock はサーバから今日の実レコードを取得してマージするので、表示中の週に関わらず安全（0上書きしない）。
+      if (key === 'cur_followers') saveTodayStock({ followers: value })
+      if (key === 'cur_follows') saveTodayStock({ follows: value })
       // 投稿数(cur_posts)はプロフィール累計のため、フロー値の日次postsとはリンクしない
     }, 600)
   }
@@ -319,8 +319,14 @@ export function InstagramView() {
     ? weekByAcc.reduce((s, arr) => s + arr.filter(m => m.blocked).length, 0)
     : weekDays.filter(d => metricsMap[d]?.blocked).length
 
+  // アカ単位の「最新の正値」ストック（cur_ 未設定アカを日次stockで補う。全体フォールバックだと一部欠損を取りこぼす）
+  const stockLatestForAcc = (accId: string, key: string) => {
+    const rows = igWeekAllFlat.filter(m => m.account_id === accId).sort((a, b) => a.date.localeCompare(b.date))
+    for (let i = rows.length - 1; i >= 0; i--) { const v = num(rows[i][key as keyof InstagramMetrics]); if (v > 0) return v }
+    return 0
+  }
   const followerLatest = allMode
-    ? (accounts.reduce((s, a) => s + (a.cur_followers || 0), 0) || (allWeekTotals.followers || 0))
+    ? accounts.reduce((s, a) => s + (a.cur_followers || stockLatestForAcc(a.id, 'followers')), 0)
     : (effectiveAccount?.cur_followers || stockLatestOne('followers'))
   const followerDelta = allMode
     ? weekByAcc.reduce((s, arr) => {
@@ -329,7 +335,7 @@ export function InstagramView() {
       }, 0)
     : (() => { const l = stockLatestOne('followers'), f = stockFirstOne('followers'); return (l > 0 && f > 0) ? l - f : 0 })()
   const followLatest = allMode
-    ? (accounts.reduce((s, a) => s + (a.cur_follows || 0), 0) || (allWeekTotals.follows || 0))
+    ? accounts.reduce((s, a) => s + (a.cur_follows || stockLatestForAcc(a.id, 'follows')), 0)
     : (effectiveAccount?.cur_follows || stockLatestOne('follows'))
   const dmSendWeek = flowSum('dm_send')
   const seiyakuWeek = flowSum('ig_seiyaku')
@@ -576,7 +582,8 @@ export function InstagramView() {
               {IG_FUNNEL.map(({ key, label, rateLabel, color }, i) => {
                 const val = flowSum(key)
                 const prev = i === 0 ? 0 : flowSum(IG_FUNNEL[i - 1].key)
-                const stepRate = i === 0 ? null : pct(val, prev)
+                // ファネルは単調減少前提だが各列は自由入力で逆転(下段>上段)が起こり得る。100%上限でキャップし>100%の誤表示を防ぐ
+                const stepRate = i === 0 ? null : Math.min(100, pct(val, prev))
                 const reachRate = funnelTop > 0 ? Math.round((val / funnelTop) * 100) : 0
                 return (
                   <div key={key} className="flex items-center gap-2">

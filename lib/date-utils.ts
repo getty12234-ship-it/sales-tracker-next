@@ -193,8 +193,14 @@ export function elapsedUsableDays(yearMonth: string): number {
   return Math.min(todayDate, usableDays(yearMonth))
 }
 
-// 残りの「使える日数」= usableDays - 経過。非当月は0。
+// 残りの「使える日数」= usableDays - 経過。過去月=0(経過満了)、未来月=0(まだ始まっていない)。
 export function remainingUsableDays(yearMonth: string): number {
+  const [year, month] = yearMonth.split('-').map(Number)
+  const now = new Date()
+  const ymNum = year * 12 + month
+  const nowNum = now.getFullYear() * 12 + (now.getMonth() + 1)
+  // 未来月は elapsed=0 のため usableDays-0=満額になってしまう。未来月の「残り」は0（経過0であって残り満額ではない）
+  if (ymNum > nowNum) return 0
   return Math.max(0, usableDays(yearMonth) - elapsedUsableDays(yearMonth))
 }
 

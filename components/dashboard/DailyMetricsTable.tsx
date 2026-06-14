@@ -183,7 +183,11 @@ export function DailyMetricsTable() {
       const row: any = { member_id: currentMember.id, date }
       METRIC_FIELDS.forEach(({ key }) => {
         const idx = fieldIndexMap[key]
-        if (idx !== undefined) row[key] = parseInt(cols[idx]) || 0
+        if (idx === undefined) return
+        const raw = cols[idx]
+        // 空セル/欠損列はスキップ（rowに積まない＝upsertのonConflictで既存値を保持。0で潰さない）
+        if (raw === undefined || raw.trim() === '') return
+        row[key] = parseInt(raw) || 0
       })
       saves.push(save(row))
     }

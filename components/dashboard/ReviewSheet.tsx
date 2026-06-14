@@ -190,25 +190,40 @@ export function ReviewSheet({ weekStart: weekStartProp, readOnly = false, monthY
     })
   }, [review, loadKey])
 
+  // 未発火のデバウンス保存ペイロード（週/メンバー切替時にflushして最後の編集を失わない）
+  const pendingSave = useRef<Parameters<typeof save>[0] | null>(null)
+  // 週/メンバー切替・アンマウント時に保留中の保存を即flush（800ms以内の切替で起こる編集消失を防ぐ）
+  useEffect(() => {
+    return () => {
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current)
+        if (pendingSave.current) { save(pendingSave.current); pendingSave.current = null }
+      }
+    }
+  }, [loadKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const debouncedSave = (updates: Partial<typeof form>) => {
     if (!currentMember) return
     const next = { ...form, ...updates }
     setForm(next)
     syncEvents.emit('saving')
 
+    const payload = {
+      member_id: currentMember.id,
+      week_start_date: weekStart,
+      main_issue: next.main_issue,
+      main_cause: next.main_cause,
+      top_action: next.top_action,
+      cause_actions: next.cause_groups as any, // cause_groupsをcause_actionsカラムに保存
+      muchaku_reasons: next.muchaku_reasons,
+      ng_reasons: next.ng_reasons,
+      doin_muchaku_list: next.doin_muchaku_list,
+    }
+    pendingSave.current = payload
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => {
-      save({
-        member_id: currentMember.id,
-        week_start_date: weekStart,
-        main_issue: next.main_issue,
-        main_cause: next.main_cause,
-        top_action: next.top_action,
-        cause_actions: next.cause_groups as any, // cause_groupsをcause_actionsカラムに保存
-        muchaku_reasons: next.muchaku_reasons,
-        ng_reasons: next.ng_reasons,
-        doin_muchaku_list: next.doin_muchaku_list,
-      })
+      save(payload)
+      pendingSave.current = null
     }, 800)
   }
 

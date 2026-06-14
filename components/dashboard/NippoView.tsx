@@ -69,19 +69,29 @@ export function NippoView() {
     })
   }, [report, selectedDate])
 
+  // 未発火のデバウンス保存ペイロード（日/メンバー切替時にflushして最後の編集を失わない）
+  const pendingSave = useRef<Parameters<typeof save>[0] | null>(null)
+  useEffect(() => {
+    return () => {
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current)
+        if (pendingSave.current) { save(pendingSave.current); pendingSave.current = null }
+      }
+    }
+  }, [selectedDate, currentMember?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const debouncedSave = (updates: Partial<typeof form>) => {
     if (!currentMember) return
     const next = { ...form, ...updates }
     setForm(next)
     syncEvents.emit('saving')
 
+    const payload = { member_id: currentMember.id, date: selectedDate, ...next }
+    pendingSave.current = payload
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => {
-      save({
-        member_id: currentMember.id,
-        date: selectedDate,
-        ...next,
-      })
+      save(payload)
+      pendingSave.current = null
     }, 800)
   }
 
