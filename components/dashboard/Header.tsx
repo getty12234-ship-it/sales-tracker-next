@@ -1,6 +1,6 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAppState } from '@/lib/store'
 import { getMembers } from '@/lib/queries'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -36,6 +36,7 @@ export function Header() {
   } = useAppState()
   const [syncState, setSyncState] = useState<SyncState>('idle')
   const router = useRouter()
+  const queryClient = useQueryClient()
 
   const { data } = useQuery({
     queryKey: ['members'],
@@ -97,6 +98,7 @@ export function Header() {
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
+    queryClient.clear() // 前ユーザーのキャッシュを破棄してから遷移（次ユーザーへのデータ露出防止）
     router.push('/login')
     router.refresh()
   }

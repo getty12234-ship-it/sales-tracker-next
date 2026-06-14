@@ -52,14 +52,18 @@ export function Providers({ children }: { children: ReactNode }) {
       if (user) loadUserMember(user.id)
     })
 
-    // セッション変更を監視
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        loadUserMember(session.user.id)
-      } else {
+    // セッション変更を監視（eventで分岐）
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' || !session?.user) {
         setCurrentMember(null)
         setIsAdmin(false)
         setAuthMemberId(null)
+        // 前ユーザーのキャッシュを全破棄（同一タブで別ユーザーがログインしても前ユーザーのメンバー/数値が露出しない）
+        queryClient.clear()
+      } else if (event === 'SIGNED_IN') {
+        // ログイン時のみメンバー再ロード。初回(INITIAL_SESSION)は上の getUser() が処理。
+        // TOKEN_REFRESHED/USER_UPDATED では再ロードせずメンバー/チーム選択を保持する。
+        loadUserMember(session.user.id)
       }
     })
 
