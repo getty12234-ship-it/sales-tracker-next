@@ -46,7 +46,8 @@ export function NippoView() {
   const { mutateAsync: save } = useMutation({
     mutationFn: upsertDailyReport,
     onSuccess: (data) => {
-      queryClient.setQueryData(['daily_report', currentMember?.id, selectedDate], data)
+      // 保存された行のメンバー/日でキャッシュ更新（render参照だとメンバー/日切替中に別キャッシュを汚染）
+      queryClient.setQueryData(['daily_report', data.member_id, data.date], data)
       syncEvents.emit('saved')
       setTimeout(() => syncEvents.emit('idle'), 2000)
     },

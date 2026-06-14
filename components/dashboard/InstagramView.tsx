@@ -84,8 +84,9 @@ export function InstagramView() {
   const { mutateAsync: save } = useMutation({
     mutationFn: upsertInstagramMetrics,
     onSuccess: (data) => {
+      // 保存された行のアカウント/週でキャッシュ更新（effectiveAccountId 発火時参照だとアカ切替中に別アカのキャッシュを汚染）
       queryClient.setQueryData(
-        ['ig_metrics', effectiveAccountId, currentWeekStart],
+        ['ig_metrics', data.account_id, getWeekStart(data.date)],
         (old: InstagramMetrics[] = []) => {
           const idx = old.findIndex(m => m.date === data.date)
           if (idx >= 0) { const next = [...old]; next[idx] = data; return next }
@@ -181,11 +182,13 @@ export function InstagramView() {
   }, [effectiveAccountId, effectiveAccount?.cur_followers, effectiveAccount?.cur_follows, effectiveAccount?.cur_posts])
 
   const { mutate: saveStats } = useMutation({
-    mutationFn: (patch: { cur_followers: number; cur_follows: number; cur_posts: number }) =>
-      updateInstagramAccountStats(effectiveAccountId!, patch),
+    // 書込先アカウントは variables で受ける（effectiveAccountId を発火時参照すると、アカ/メンバー切替中の
+    // デバウンス保存が別アカウントのスナップショットを上書き破壊する）。
+    mutationFn: ({ accountId, patch }: { accountId: string; patch: { cur_followers: number; cur_follows: number; cur_posts: number } }) =>
+      updateInstagramAccountStats(accountId, patch),
     onMutate: () => syncEvents.emit('saving'),
     onSuccess: (updated) => {
-      queryClient.setQueryData(['ig_accounts', currentMember?.id], (old: InstagramAccount[] = []) =>
+      queryClient.setQueryData(['ig_accounts', updated.member_id], (old: InstagramAccount[] = []) =>
         old.map(a => a.id === updated.id ? updated : a))
       syncEvents.emit('saved'); setTimeout(() => syncEvents.emit('idle'), 2000)
     },
@@ -194,16 +197,16 @@ export function InstagramView() {
 
   // 「現在の数値」フォロワー/フォロー中 → 今日の日次（ストック）に書き込む（双方向リンク用）
   const { mutate: saveTodayStock } = useMutation({
-    mutationFn: async (patch: Partial<InstagramMetrics>) => {
-      // 今日の実レコードをサーバから取得してマージする。
+    mutationFn: async ({ accountId, patch }: { accountId: string; patch: Partial<InstagramMetrics> }) => {
+      // 今日の実レコードをサーバから取得してマージする（書込先アカは variables で固定＝切替中の別アカ汚染防止）。
       // ※ ローカルキャッシュ(stale/未取得)を土台にすると、その日の dm_send 等フロー値が IG_EMPTY_METRICS の0で上書き消去される。
-      const rows = await getInstagramMetrics(effectiveAccountId!, todayStr, todayStr)
+      const rows = await getInstagramMetrics(accountId, todayStr, todayStr)
       const existing = rows[0]
-      return upsertInstagramMetrics({ account_id: effectiveAccountId!, date: todayStr, ...IG_EMPTY_METRICS, ...(existing || {}), ...patch })
+      return upsertInstagramMetrics({ account_id: accountId, date: todayStr, ...IG_EMPTY_METRICS, ...(existing || {}), ...patch })
     },
     onSuccess: (data) => {
-      // 今日が属する週のキャッシュを更新（表示中の週＝今週なら日次テーブルに即反映）
-      queryClient.setQueryData(['ig_metrics', effectiveAccountId, weekOfToday], (old: InstagramMetrics[] = []) => {
+      // 今日が属する週のキャッシュを更新（保存された行のアカウントで＝表示中の週＝今週なら日次テーブルに即反映）
+      queryClient.setQueryData(['ig_metrics', data.account_id, weekOfToday], (old: InstagramMetrics[] = []) => {
         const idx = old.findIndex(m => m.date === data.date)
         if (idx >= 0) { const n = [...old]; n[idx] = data; return n }
         return [...old, data]
@@ -226,13 +229,15 @@ export function InstagramView() {
   const handleStat = (key: 'cur_followers' | 'cur_follows' | 'cur_posts', value: number) => {
     const next = { ...stats, [key]: value }
     setStats(next)
+    if (!effectiveAccountId) return
+    const accountId = effectiveAccountId // スケジュール時点のアカウントを焼き込む（発火時のeffectiveAccountIdに依存しない）
     if (statsTimer.current) clearTimeout(statsTimer.current)
     statsTimer.current = setTimeout(() => {
-      saveStats(next) // アカウントのスナップショット更新
+      saveStats({ accountId, patch: next }) // アカウントのスナップショット更新
       // フォロワー/フォロー中は「今日の日次（その日時点の現在値＝ストック）」にもリンク書き込み。
       // saveTodayStock はサーバから今日の実レコードを取得してマージするので、表示中の週に関わらず安全（0上書きしない）。
-      if (key === 'cur_followers') saveTodayStock({ followers: value })
-      if (key === 'cur_follows') saveTodayStock({ follows: value })
+      if (key === 'cur_followers') saveTodayStock({ accountId, patch: { followers: value } })
+      if (key === 'cur_follows') saveTodayStock({ accountId, patch: { follows: value } })
       // 投稿数(cur_posts)はプロフィール累計のため、フロー値の日次postsとはリンクしない
     }, 600)
   }

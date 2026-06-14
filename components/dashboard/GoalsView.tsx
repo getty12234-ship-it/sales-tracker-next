@@ -138,15 +138,25 @@ export function GoalsView() {
 
   const [blocks, setBlocks] = useState<GoalBlock[]>([])
 
+  // DB→blocksの同期は初回ロード/メンバー切替時のみ。保存後のinvalidate→再フェッチでは入力中blocksを上書きしない
+  // （同一メンバー内で入力中に巻き戻る＝IME変換中の文字が消えるのを防ぐ。UnifiedSummary/ReviewSheetと同方式）。
+  const loadedKey = useRef<string | undefined>(undefined)
   useEffect(() => {
+    if (goalsData === undefined) return // 読み込み中
+    const key = currentMember?.id
+    if (loadedKey.current === key) return
+    loadedKey.current = key
     setBlocks(dbToBlocks(goalsData))
-  }, [goalsData])
+  }, [goalsData, currentMember?.id])
 
   const { mutate: save } = useMutation({
-    mutationFn: (data: Partial<MemberGoalData>) => upsertMemberGoals(currentMember!.id, data),
+    // 保存先メンバーは variables で受ける（renderスコープの currentMember を使うと、メンバー切替中に
+    // 発火したデバウンス保存が前メンバーのゴールを新メンバー行へ上書き破壊する＝永続データ事故）。
+    mutationFn: ({ memberId, data }: { memberId: string; data: Partial<MemberGoalData> }) =>
+      upsertMemberGoals(memberId, data),
     onMutate: () => syncEvents.emit('saving'),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['member_goals', currentMember?.id] })
+    onSuccess: (_d, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['member_goals', vars.memberId] })
       syncEvents.emit('saved')
       setTimeout(() => syncEvents.emit('idle'), 2000)
     },
@@ -154,8 +164,10 @@ export function GoalsView() {
   })
 
   const triggerSave = (next: GoalBlock[]) => {
+    if (!currentMember) return
+    const memberId = currentMember.id // スケジュール時点のメンバーを焼き込む（発火時のcurrentMemberに依存しない）
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => save(blocksToDb(next)), 600)
+    debounceRef.current = setTimeout(() => save({ memberId, data: blocksToDb(next) }), 600)
   }
 
   const update = (next: GoalBlock[]) => {

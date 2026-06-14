@@ -102,18 +102,22 @@ export function UnifiedSummary() {
     setGoalText(savedMonthlyGoal)
   }, [settings, goalKey, savedMonthlyGoal])
   const { mutate: saveGoal } = useMutation({
-    mutationFn: (text: string) => upsertMonthlyGoal(currentMember!.id, ym, text),
+    // 保存先メンバーは variables で受ける（renderスコープの currentMember を使うと、メンバー切替中に
+    // 発火したデバウンス保存が前メンバーのメモを新メンバーの月メモへ上書き破壊する）。
+    mutationFn: ({ memberId, text }: { memberId: string; text: string }) => upsertMonthlyGoal(memberId, ym, text),
     onMutate: () => syncEvents.emit('saving'),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings', currentMember?.id] })
+    onSuccess: (_d, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['settings', vars.memberId] })
       syncEvents.emit('saved'); setTimeout(() => syncEvents.emit('idle'), 2000)
     },
     onError: () => syncEvents.emit('error'),
   })
   const handleGoalChange = (text: string) => {
+    if (!currentMember) return
+    const memberId = currentMember.id // スケジュール時点のメンバーを焼き込む
     setGoalText(text)
     if (goalTimer.current) clearTimeout(goalTimer.current)
-    goalTimer.current = setTimeout(() => saveGoal(text), 700)
+    goalTimer.current = setTimeout(() => saveGoal({ memberId, text }), 700)
   }
 
   if (!currentMember) {
