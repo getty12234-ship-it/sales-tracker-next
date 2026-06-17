@@ -5,7 +5,7 @@ import { useAppState } from '@/lib/store'
 import { getMembers } from '@/lib/queries'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Check, Loader2, Wifi, LogOut, Lock } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
@@ -66,21 +66,25 @@ export function Header() {
     }
   }, [currentTeam, members, isAdmin, currentMember, setCurrentMember])
 
-  // 初回/未選択時: 管理者のメンバー自動選択
+  // 初回だけ: 管理者のデフォルトメンバーを自動選択する。
+  // ※ 「初回1回だけ」に限定するのが肝。ここを毎回走らせると、管理者が空のチーム(例:メンバー0のサード)を
+  //    クリックしたときに『メンバーの居るチームへ自動切替』して弾かれ、空チームを開けなくなる。
+  //    初回限定にすることで、空チーム選択時は currentMember=null のまま空状態を表示でき、かつ
+  //    上の「空チーム→null化」Effect と振動しない（無限ループも防ぐ）。
+  const didInitSelectRef = useRef(false)
   useEffect(() => {
     if (!isAdmin) return
-    if (!currentMember && members.length > 0) {
-      // まず現在のチームから選ぶ
-      const inTeam = members.filter(m => (m.team || 'top') === currentTeam && !m.is_admin)
-      if (inTeam.length > 0) { setCurrentMember(inTeam[0]); return }
-      // 現在のチームが空なら、メンバーのいるチームへ切替えて選ぶ。
-      // ※ currentTeam も同時に同期しないと、上の「空チーム→null化」Effect と振動して
-      //    Maximum update depth exceeded（無限ループ）でダッシュボードがクラッシュする。
-      const any = members.find(m => !m.is_admin)
-      if (any) {
-        setCurrentTeam((any.team as 'core' | 'top' | 'second' | 'third' | 'jigyo') || 'top')
-        setCurrentMember(any)
-      }
+    if (members.length === 0) return
+    if (currentMember) { didInitSelectRef.current = true; return }
+    if (didInitSelectRef.current) return // 初回選択済み → 空チームを開いてもバウンスしない
+    const inTeam = members.filter(m => (m.team || 'top') === currentTeam && !m.is_admin)
+    if (inTeam.length > 0) { didInitSelectRef.current = true; setCurrentMember(inTeam[0]); return }
+    // 初回かつ現在のチームが空 → メンバーの居るチームへ切替えて選ぶ（currentTeamも同期してループ回避）
+    const any = members.find(m => !m.is_admin)
+    if (any) {
+      didInitSelectRef.current = true
+      setCurrentTeam((any.team as 'core' | 'top' | 'second' | 'third' | 'jigyo') || 'top')
+      setCurrentMember(any)
     }
   }, [members, currentMember, currentTeam, isAdmin, setCurrentMember, setCurrentTeam])
 
